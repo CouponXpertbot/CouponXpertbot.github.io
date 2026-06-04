@@ -37,7 +37,7 @@ def send_telegram(message):
 posted = load_posted()
 
 url = "https://coursefolder.net/"
-html = requests.get(url, timeout=20).text
+html = requests.get(url, timeout=5000).text
 
 soup = BeautifulSoup(html, "html.parser")
 
