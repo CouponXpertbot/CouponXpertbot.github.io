@@ -3,7 +3,7 @@ import requests
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
-CHANNEL = "@YOUR_TEST_CHANNEL"
+CHANNEL = "@channelboottest"
 
 message = """
 🤖 CouponXpert Bot Test
