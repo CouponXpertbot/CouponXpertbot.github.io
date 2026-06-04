@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = "@YOUR_TEST_CHANNEL"
+CHANNEL = "@channelboottest"
 
 POSTED_FILE = "posted_courses.txt"
 
