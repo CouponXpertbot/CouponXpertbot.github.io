@@ -13,11 +13,12 @@ html = requests.get(
 
 soup = BeautifulSoup(html, "html.parser")
 
-# Print all links containing "coursefolder.net/"
-for a in soup.find_all("a", href=True):
-    href = a["href"]
+print("TITLE:", soup.title)
 
-    if "coursefolder.net/" in href:
-        print("TEXT:", a.get_text(strip=True))
-        print("LINK:", href)
-        print("-" * 50)
+print("\nFIRST 20 LINKS:\n")
+
+for i, a in enumerate(soup.find_all("a", href=True)[:20]):
+    print(i + 1)
+    print("TEXT:", a.get_text(strip=True))
+    print("HREF:", a["href"])
+    print("-" * 40)
