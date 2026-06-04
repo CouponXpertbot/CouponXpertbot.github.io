@@ -3,7 +3,7 @@ import os
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
-CHANNEL = "@CouponXpert"
+CHANNEL = "@channelboottest"
 
 message = """
 🎓 FREE UDEMY COURSE (100% OFF)
