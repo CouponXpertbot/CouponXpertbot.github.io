@@ -8,9 +8,10 @@ html = requests.get(
     timeout=30
 )
 
-print(html.status_code)
+text = html.text
 
-with open("page.html", "w", encoding="utf-8") as f:
-    f.write(html.text)
+keyword = "Microsoft DP-203"
 
-print("saved")
+pos = text.find(keyword)
+
+print(text[pos-1000:pos+3000])
