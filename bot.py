@@ -1,4 +1,5 @@
 import requests
+from bs4 import BeautifulSoup
 
 url = "https://elearn.interviewgig.com/free-online-courses-coupons/"
 
@@ -8,10 +9,23 @@ html = requests.get(
     timeout=30
 )
 
-text = html.text
+soup = BeautifulSoup(html.text, "html.parser")
 
-keyword = "Microsoft DP-203"
+courses = soup.select("div.rehub_bordered_block.rh_listitem")
 
-pos = text.find(keyword)
+print(f"Found {len(courses)} courses\n")
 
-print(text[pos-1000:pos+3000])
+for course in courses[:10]:
+    title_tag = course.select_one(
+        "div.font120.fontbold.rehub-main-font.lineheight20"
+    )
+
+    link_tag = course.select_one("a.re_track_btn.btn_offer_block")
+
+    if title_tag and link_tag:
+        title = title_tag.get_text(strip=True)
+        link = link_tag["href"]
+
+        print("TITLE:", title)
+        print("LINK :", link)
+        print("-" * 50)
