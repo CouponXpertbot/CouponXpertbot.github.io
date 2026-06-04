@@ -1,31 +1,30 @@
 import requests
-from bs4 import BeautifulSoup
+import os
 
-url = "https://elearn.interviewgig.com/free-online-courses-coupons/"
+BOT_TOKEN = os.environ["BOT_TOKEN"]
 
-html = requests.get(
-    url,
-    headers={"User-Agent": "Mozilla/5.0"},
-    timeout=30
+CHANNEL = "@CouponXpert"
+
+message = """
+🎓 FREE UDEMY COURSE (100% OFF)
+
+📘 Course: Microsoft DP-203 Certified: Azure Data Engineer Associate
+
+🔗 Enroll Here:
+https://www.udemy.com/course/microsoft-dp-203-certified-azure-data-engineer-associate/?couponCode=AFE1CAB8F61CF05D52EA
+
+⚠️ Coupon may expire anytime
+
+👇 More FREE books & courses
+👉 https://t.me/CouponXpert
+"""
+
+requests.post(
+    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+    data={
+        "chat_id": CHANNEL,
+        "text": message
+    }
 )
 
-soup = BeautifulSoup(html.text, "html.parser")
-
-courses = soup.select("div.rehub_bordered_block.rh_listitem")
-
-print(f"Found {len(courses)} courses\n")
-
-for course in courses[:10]:
-    title_tag = course.select_one(
-        "div.font120.fontbold.rehub-main-font.lineheight20"
-    )
-
-    link_tag = course.select_one("a.re_track_btn.btn_offer_block")
-
-    if title_tag and link_tag:
-        title = title_tag.get_text(strip=True)
-        link = link_tag["href"]
-
-        print("TITLE:", title)
-        print("LINK :", link)
-        print("-" * 50)
+print("sent")
