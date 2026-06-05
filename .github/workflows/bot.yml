@@ -32,6 +32,6 @@ jobs:
         
               git add posted_courses.txt
       
-              git diff --staged --quiet || git commit -m "Update posted courses
+              git diff --staged --quiet || git commit -m "Update posted courses"
         
               git push
