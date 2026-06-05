@@ -1,17 +1,85 @@
 import requests
+from bs4 import BeautifulSoup
 import os
 
+# ==========================
+# Telegram Settings
+# ==========================
+
 BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHANNEL = "@CouponXpert"
 
-CHANNEL = "@channelboottest"
+# ==========================
+# Load Posted Courses
+# ==========================
 
-message = """
+try:
+    with open("posted_courses.txt", "r", encoding="utf-8") as f:
+        posted = set(f.read().splitlines())
+except FileNotFoundError:
+    posted = set()
+
+# ==========================
+# Scrape InterviewGIG
+# ==========================
+
+url = "https://elearn.interviewgig.com/free-online-courses-coupons/"
+
+response = requests.get(
+    url,
+    headers={"User-Agent": "Mozilla/5.0"},
+    timeout=30
+)
+
+soup = BeautifulSoup(response.text, "html.parser")
+
+courses = soup.select("div.rehub_bordered_block.rh_listitem")
+
+print(f"Found {len(courses)} courses")
+
+# ==========================
+# Find First New Course
+# ==========================
+
+for course in courses:
+
+    title_tag = course.select_one(
+        "div.font120.fontbold.rehub-main-font.lineheight20"
+    )
+
+    link_tag = course.select_one(
+        "a.re_track_btn.btn_offer_block"
+    )
+
+    if not title_tag or not link_tag:
+        continue
+
+    title = title_tag.get_text(strip=True)
+    link = link_tag["href"]
+
+    # Skip non-Udemy links
+    if "udemy.com" not in link:
+        continue
+
+    # Skip already posted courses
+    if link in posted:
+        continue
+
+    print("Posting:", title)
+
+    # ==========================
+    # CouponXpert Format
+    # ==========================
+
+    message = f"""
 🎓 FREE UDEMY COURSE (100% OFF)
 
-📘 Course: Microsoft DP-203 Certified: Azure Data Engineer Associate
+📘 Course: {title}
+
+🚀 Enroll before the coupon expires!
 
 🔗 Enroll Here:
-https://www.udemy.com/course/microsoft-dp-203-certified-azure-data-engineer-associate/?couponCode=AFE1CAB8F61CF05D52EA
+{link}
 
 ⚠️ Coupon may expire anytime
 
@@ -19,12 +87,30 @@ https://www.udemy.com/course/microsoft-dp-203-certified-azure-data-engineer-asso
 👉 https://t.me/CouponXpert
 """
 
-requests.post(
-    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-    data={
-        "chat_id": CHANNEL,
-        "text": message
-    }
-)
+    # ==========================
+    # Send To Telegram
+    # ==========================
 
-print("sent")
+    telegram_response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data={
+            "chat_id": CHANNEL,
+            "text": message
+        }
+    )
+
+    print(telegram_response.text)
+
+    # ==========================
+    # Save Posted Link
+    # ==========================
+
+    with open("posted_courses.txt", "a", encoding="utf-8") as f:
+        f.write(link + "\n")
+
+    print("Saved to posted_courses.txt")
+
+    break
+
+else:
+    print("No new courses found")
