@@ -7,7 +7,7 @@ import os
 # ==========================
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = "@CouponXpert"
+CHANNEL = "@Channelboottest"
 
 # ==========================
 # Load Posted Courses
