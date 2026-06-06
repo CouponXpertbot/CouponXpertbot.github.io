@@ -40,3 +40,6 @@ https://www.udemy.com/course/master-nodejs-from-beginner-to-full-stack-developer
 https://www.udemy.com/course/the-ultimate-python-developer-course-learn-step-by-step/?couponCode=93DAA47E2B27E59DCBE4
 https://www.udemy.com/course/innovative-ai-practices-in-telemedicine-virtual-care/?couponCode=STAR_STUDENTSFREE
 https://www.udemy.com/course/machine-learning-fundamental-of-python-machine-learning/?couponCode=2493368160FB39E7613C
+https://www.udemy.com/course/mastering-javascript-and-jquery-course-beginners-to-advanced/?couponCode=5E3A5F63C12FAB3493D7
+https://www.udemy.com/course/salesforce-fundamentals-a-complete-guide-for-beginners/?couponCode=5B8A5245B5F16614A140
+https://www.udemy.com/course/forextradingrobotcreationcourse/?couponCode=6824994B60FA2OLA
