@@ -115,8 +115,8 @@ for course in courses:
 
     posted_count += 1
 
-    if posted_count >= 3:
-    break
+    if posted_count >= 3:  
+        break
 
 if posted_count == 0:
     print("No new courses found")
