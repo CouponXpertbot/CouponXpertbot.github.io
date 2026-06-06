@@ -34,3 +34,6 @@ https://www.udemy.com/course/management-consulting-business-strategy/?couponCode
 https://www.udemy.com/course/management-consulting-presentation-mckinsey/?couponCode=6DAAE114E56E2A95A6D3
 https://www.udemy.com/course/the-ultimate-sql-bootcamp-go-from-zero-to-hero/?couponCode=3BB9302293CA52DA2622
 https://www.udemy.com/course/excel-data-insights-power-query-pivot-analysis-and-visuals/?couponCode=4B29089D84E8355C804D
+https://www.udemy.com/course/tensorflow-course-basic-to-advanced-neural-network-beyond/?couponCode=EA69960AACA1C4D9CA0C
+https://www.udemy.com/course/perplexity-ai-transform-your-research-and-writing-workflow/?couponCode=BC9FDA7673BBDE969526
+https://www.udemy.com/course/master-nodejs-from-beginner-to-full-stack-developer/?couponCode=2FB9074CD170B8322E95
