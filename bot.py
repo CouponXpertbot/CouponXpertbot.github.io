@@ -40,6 +40,7 @@ print(f"Found {len(courses)} courses")
 # ==========================
 # Find First New Course
 # ==========================
+posted_count = 0
 
 for course in courses:
 
@@ -108,9 +109,16 @@ for course in courses:
     with open("posted_courses.txt", "a", encoding="utf-8") as f:
         f.write(link + "\n")
 
+    posted.add(link)
+
     print("Saved to posted_courses.txt")
 
+    posted_count += 1
+
+    if posted_count >= 3:
     break
 
-else:
+if posted_count == 0:
     print("No new courses found")
+else:
+    print(f"Posted {posted_count} new courses")
