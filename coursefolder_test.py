@@ -165,48 +165,48 @@ def is_course_truly_free(udemy_url: str) -> bool:
                 "span[data-purpose='lead-price']",
                 ".price-display__price",
                 ".course-price-text"
-            ]
+        ]
             
         price_text = None
          for selector in price_selectors:
              element = page.query_selector(selector)
-                if element:
+             if element:
                     price_text = element.inner_text().strip().lower()
-                   break
+                    break
             
          if not price_text:
                 # Fallback: check whole page body for price patterns
-              body = page.inner_text("body").lower()
+           body = page.inner_text("body").lower()
                 # Look for common free indicators
-                 if any(phrase in body for phrase in ["free", "100% off", "₹0", "$0", "0.00"]):
+           if any(phrase in body for phrase in ["free", "100% off", "₹0", "$0", "0.00"]):
                     # But also ensure no "₹399" etc appears nearby? Simpler: accept free phrases.
                     # We'll still return True if "free" is prominent.
-                 if "free" in body and not re.search(r'₹\d{2,}', body):
-                        return True
-                 return False
+           if "free" in body and not re.search(r'₹\d{2,}', body):
+                   return True
+           return False
             
             # Analyze price_text
-            price_text = price_text.lower()
+        price_text = price_text.lower()
             
             # Positive indicators (free)
-            if price_text in ["free", "₹0", "$0", "€0", "0", "0.00"]:
+        if price_text in ["free", "₹0", "$0", "€0", "0", "0.00"]:
                 return True
-            if "100% off" in price_text:
+        if "100% off" in price_text:
                 return True
-            if "free" in price_text:
+        if "free" in price_text:
                 return True
             
             # Negative indicators (paid)
-            if re.search(r'₹\d+', price_text):
-                return False
-            if re.search(r'\$\d+', price_text):
-                return False
-            if re.search(r'\d+% off', price_text) and "100%" not in price_text:
+        if re.search(r'₹\d+', price_text):
+             return False
+         if re.search(r'\$\d+', price_text):
+              return False
+         if re.search(r'\d+% off', price_text) and "100%" not in price_text:
                 # e.g., "90% off" - still paid, not completely free
-                return False
-            if re.search(r'[0-9]+(\.[0-9]{2})?', price_text):
+              return False
+         if re.search(r'[0-9]+(\.[0-9]{2})?', price_text):
                 # Any numeric price
-                return False
+              return False
             
             # If no clear price but also no free indicator, assume not free
             return False
