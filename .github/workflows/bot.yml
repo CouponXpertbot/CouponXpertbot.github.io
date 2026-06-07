@@ -26,13 +26,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: python bot.py
-
-      - name: CFtest Bot
-        env:
-            BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        run: coursefolder_test.py
-        
-        
+             
       - name: Commit updated posted_courses.txt
         run: |
               git config --global user.name "github-actions[bot]"
