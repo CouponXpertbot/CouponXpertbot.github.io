@@ -167,23 +167,23 @@ def is_course_truly_free(udemy_url: str) -> bool:
                 ".course-price-text"
             ]
             
-            price_text = None
-            for selector in price_selectors:
-                element = page.query_selector(selector)
+        price_text = None
+         for selector in price_selectors:
+             element = page.query_selector(selector)
                 if element:
                     price_text = element.inner_text().strip().lower()
-                    break
+                   break
             
-            if not price_text:
+         if not price_text:
                 # Fallback: check whole page body for price patterns
-                body = page.inner_text("body").lower()
+              body = page.inner_text("body").lower()
                 # Look for common free indicators
-                if any(phrase in body for phrase in ["free", "100% off", "₹0", "$0", "0.00"]):
+                 if any(phrase in body for phrase in ["free", "100% off", "₹0", "$0", "0.00"]):
                     # But also ensure no "₹399" etc appears nearby? Simpler: accept free phrases.
                     # We'll still return True if "free" is prominent.
-                    if "free" in body and not re.search(r'₹\d{2,}', body):
+                 if "free" in body and not re.search(r'₹\d{2,}', body):
                         return True
-                return False
+                 return False
             
             # Analyze price_text
             price_text = price_text.lower()
