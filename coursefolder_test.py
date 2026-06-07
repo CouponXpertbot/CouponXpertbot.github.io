@@ -152,11 +152,10 @@ def is_course_truly_free(udemy_url: str) -> bool:
     Returns True if the course is free (₹0, $0, Free, 100% off).
     Returns False otherwise (coupon expired, partial discount).
     """
-    
-        try:
-            print(f"🔍 Validating: {udemy_url}")
-            page.goto(udemy_url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_load_state("networkidle")
+    try:
+        print(f"🔍 Validating: {udemy_url}")
+        page.goto(udemy_url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_load_state("networkidle")
 
             # Try multiple selectors for price text
             # Udemy often uses data-purpose="price-text" or similar
