@@ -168,7 +168,7 @@ def is_course_truly_free(udemy_url: str) -> bool:
         ]
             
         price_text = None
-         for selector in price_selectors:
+        for selector in price_selectors:
              element = page.query_selector(selector)
              if element:
                     price_text = element.inner_text().strip().lower()
