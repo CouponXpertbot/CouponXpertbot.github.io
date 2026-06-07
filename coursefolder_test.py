@@ -158,7 +158,7 @@ def is_course_truly_free(udemy_url: str) -> bool:
         page.wait_for_load_state("networkidle")
             # Try multiple selectors for price text
             # Udemy often uses data-purpose="price-text" or similar
-            price_selectors = [
+        price_selectors = [
                 "[data-purpose='price-text']",
                 ".price-text",
                 ".ud-component--course-price--price-part",
