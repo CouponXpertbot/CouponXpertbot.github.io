@@ -9,7 +9,7 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 # Telegram Settings (from GitHub Secrets)
 # ==========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = os.environ["CHANNEL_ID"]          # e.g., "@Channelboottest"
+CHANNEL = "@channelboottest"          # e.g., "@Channelboottest"
 
 # ==========================
 # Persistent Storage
