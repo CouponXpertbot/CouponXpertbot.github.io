@@ -8,7 +8,7 @@ from typing import List, Optional
 # Telegram Settings (from Secrets)
 # ==========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = os.environ["@Channelboottest"]  # e.g., "@Channelboottest" or "-1001234567890"
+CHANNEL = "@Channelboottest" # e.g., "@Channelboottest" or "-1001234567890"
 
 # ==========================
 # Load Already Posted Udemy Links
