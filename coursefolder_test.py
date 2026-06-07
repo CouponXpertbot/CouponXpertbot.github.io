@@ -144,76 +144,69 @@ def scrape_telegram_channel_links(channel: str = "coursefolder", limit: int = 20
     return list(dict.fromkeys(coursefolder_urls))
 
 # ==========================
-# Validate Udemy coupon using Playwright
+# Validate Udemy coupon using Playwright (reuses page)
 # ==========================
-def is_course_truly_free(udemy_url: str) -> bool:
+def is_course_truly_free(page, udemy_url: str) -> bool:
     """
-    Opens the Udemy course page with a real browser, checks the price element.
-    Returns True if the course is free (₹0, $0, Free, 100% off).
-    Returns False otherwise (coupon expired, partial discount).
+    Uses an already-opened Playwright page to check if the Udemy course is free.
+    Returns True if free (₹0, $0, Free, 100% off), False otherwise.
     """
     try:
         print(f"🔍 Validating: {udemy_url}")
         page.goto(udemy_url, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_load_state("networkidle")
-            # Try multiple selectors for price text
-            # Udemy often uses data-purpose="price-text" or similar
+
+        # Try multiple selectors for price text
         price_selectors = [
-                "[data-purpose='price-text']",
-                ".price-text",
-                ".ud-component--course-price--price-part",
-                "span[data-purpose='lead-price']",
-                ".price-display__price",
-                ".course-price-text"
+            "[data-purpose='price-text']",
+            ".price-text",
+            ".ud-component--course-price--price-part",
+            "span[data-purpose='lead-price']",
+            ".price-display__price",
+            ".course-price-text"
         ]
-            
+
         price_text = None
         for selector in price_selectors:
-             element = page.query_selector(selector)
-             if element:
-                    price_text = element.inner_text().strip().lower()
-                    break
-            
-         if not price_text:
-                # Fallback: check whole page body for price patterns
-           body = page.inner_text("body").lower()
-                # Look for common free indicators
-           if any(phrase in body for phrase in ["free", "100% off", "₹0", "$0", "0.00"]):
-                    # But also ensure no "₹399" etc appears nearby? Simpler: accept free phrases.
-                    # We'll still return True if "free" is prominent.
-           if "free" in body and not re.search(r'₹\d{2,}', body):
-                   return True
-           return False
-            
-            # Analyze price_text
+            element = page.query_selector(selector)
+            if element:
+                price_text = element.inner_text().strip().lower()
+                break
+
+        if not price_text:
+            # Fallback: check whole page body for price patterns
+            body = page.inner_text("body").lower()
+            if "free" in body and not re.search(r'₹\d{2,}', body):
+                return True
+            return False
+
+        # Analyze price_text
         price_text = price_text.lower()
-            
-            # Positive indicators (free)
+
+        # Positive indicators (free)
         if price_text in ["free", "₹0", "$0", "€0", "0", "0.00"]:
-                return True
+            return True
         if "100% off" in price_text:
-                return True
+            return True
         if "free" in price_text:
-                return True
-            
-            # Negative indicators (paid)
+            return True
+
+        # Negative indicators (paid)
         if re.search(r'₹\d+', price_text):
-             return False
-         if re.search(r'\$\d+', price_text):
-              return False
-         if re.search(r'\d+% off', price_text) and "100%" not in price_text:
-                # e.g., "90% off" - still paid, not completely free
-              return False
-         if re.search(r'[0-9]+(\.[0-9]{2})?', price_text):
-                # Any numeric price
-              return False
-            
-            # If no clear price but also no free indicator, assume not free
             return False
-            
-        except Exception as e:
-            print(f"⚠️ Playwright validation error: {e}")
+        if re.search(r'\$\d+', price_text):
             return False
+        if re.search(r'\d+% off', price_text) and "100%" not in price_text:
+            return False
+        if re.search(r'[0-9]+(\.[0-9]{2})?', price_text):
+            return False
+
+        # If no clear price but also no free indicator, assume not free
+        return False
+
+    except Exception as e:
+        print(f"⚠️ Playwright validation error: {e}")
+        return False
 
 # ==========================
 # Send message to your Telegram channel
@@ -253,7 +246,7 @@ def main():
     cf_links = scrape_telegram_channel_links()
     print(f"Found {len(cf_links)} coursefolder.net links in channel")
 
-       # Launch browser once
+    # Launch browser once
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -261,43 +254,43 @@ def main():
         )
         page = context.new_page()
 
-    new_posts = 0
-    MAX_NEW = 3   # post at most 3 new courses per run
+        new_posts = 0
+        MAX_NEW = 3   # post at most 3 new courses per run
 
-    for cf_url in cf_links:
-        if new_posts >= MAX_NEW:
-            break
+        for cf_url in cf_links:
+            if new_posts >= MAX_NEW:
+                break
 
-        udemy = extract_udemy_link(cf_url)
-        if not udemy:
-            print(f"⏭️ No Udemy link in {cf_url}")
-            continue
+            udemy = extract_udemy_link(cf_url)
+            if not udemy:
+                print(f"⏭️ No Udemy link in {cf_url}")
+                continue
 
-        # Clean the URL: keep only couponCode parameter
-        udemy = clean_udemy_url(udemy)
+            # Clean the URL: keep only couponCode parameter
+            udemy = clean_udemy_url(udemy)
 
-        if udemy in posted:
-            print(f"⏩ Already posted: {udemy}")
-            continue
+            if udemy in posted:
+                print(f"⏩ Already posted: {udemy}")
+                continue
 
-        # Validate coupon with Playwright
-        if not is_course_truly_free(udemy):
-            print(f"⚠️ Coupon not fully free or expired: {udemy} -> skipping")
-            continue
+            # Validate coupon with Playwright (pass the page)
+            if not is_course_truly_free(page, udemy):
+                print(f"⚠️ Coupon not fully free or expired: {udemy} -> skipping")
+                continue
 
-        # Generate a nice title from the URL slug
-        slug = cf_url.rstrip('/').split('/')[-1]
-        title = slug.replace('-', ' ').title()
+            # Generate a nice title from the URL slug
+            slug = cf_url.rstrip('/').split('/')[-1]
+            title = slug.replace('-', ' ').title()
 
-        if send_telegram_message(udemy, title):
-            save_posted_link(udemy)
-            posted.add(udemy)
-            new_posts += 1
-            print(f"✅ Posted #{new_posts}: {title}")
-        else:
-            print(f"❌ Failed to send {title}")
+            if send_telegram_message(udemy, title):
+                save_posted_link(udemy)
+                posted.add(udemy)
+                new_posts += 1
+                print(f"✅ Posted #{new_posts}: {title}")
+            else:
+                print(f"❌ Failed to send {title}")
 
-    browser.close
+        browser.close()
 
     print(f"🎉 Done. Posted {new_posts} new courses.")
 
