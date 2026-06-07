@@ -299,7 +299,7 @@ def main():
         else:
             print(f"❌ Failed to send {title}")
 
-    browser.colse
+    browser.close
 
     print(f"🎉 Done. Posted {new_posts} new courses.")
 
