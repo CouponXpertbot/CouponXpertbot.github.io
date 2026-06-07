@@ -64,7 +64,7 @@ def get_html(url: str) -> Optional[str]:
         'Cache-Control': 'max-age=0',
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = requests.get(url, headers=headers, timeout=45)
         resp.raise_for_status()
         return resp.text
     except Exception as e:
