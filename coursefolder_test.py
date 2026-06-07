@@ -152,13 +152,7 @@ def is_course_truly_free(udemy_url: str) -> bool:
     Returns True if the course is free (₹0, $0, Free, 100% off).
     Returns False otherwise (coupon expired, partial discount).
     """
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
-        
+    
         try:
             print(f"🔍 Validating: {udemy_url}")
             page.goto(udemy_url, wait_until="domcontentloaded", timeout=60000)
@@ -222,8 +216,6 @@ def is_course_truly_free(udemy_url: str) -> bool:
         except Exception as e:
             print(f"⚠️ Playwright validation error: {e}")
             return False
-        finally:
-            browser.close()
 
 # ==========================
 # Send message to your Telegram channel
@@ -263,6 +255,14 @@ def main():
     cf_links = scrape_telegram_channel_links()
     print(f"Found {len(cf_links)} coursefolder.net links in channel")
 
+       # Launch browser once
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
+
     new_posts = 0
     MAX_NEW = 3   # post at most 3 new courses per run
 
@@ -298,6 +298,8 @@ def main():
             print(f"✅ Posted #{new_posts}: {title}")
         else:
             print(f"❌ Failed to send {title}")
+
+    browser.colse
 
     print(f"🎉 Done. Posted {new_posts} new courses.")
 
