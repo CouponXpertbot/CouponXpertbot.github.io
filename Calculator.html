@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SciMaster Pro - Advanced Scientific Calculator</title>
+    <!-- Math.js Library for robust expression evaluation (BODMAS, trig, logs, etc) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.7.0/math.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: linear-gradient(145deg, #1a2a3a 0%, #0f1a24 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', 'Poppins', 'Inter', system-ui, -apple-system, sans-serif;
+            padding: 20px;
+            margin: 0;
+        }
+
+        /* Calculator Card */
+        .calculator {
+            max-width: 550px;
+            width: 100%;
+            background: rgba(22, 34, 48, 0.85);
+            backdrop-filter: blur(2px);
+            border-radius: 48px;
+            box-shadow: 0 25px 45px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+
+        /* Display Area */
+        .display-screen {
+            background: #0c121c;
+            border-radius: 32px;
+            padding: 20px 25px;
+            margin-bottom: 25px;
+            box-shadow: inset 0 5px 10px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.05);
+        }
+
+        .expression {
+            background: transparent;
+            border: none;
+            width: 100%;
+            font-size: 1.9rem;
+            font-weight: 500;
+            font-family: 'Courier New', 'Fira Code', monospace;
+            color: #e3f2fd;
+            text-align: right;
+            outline: none;
+            word-wrap: break-word;
+            letter-spacing: 1px;
+        }
+
+        .mode-badge {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-top: 8px;
+            color: #90caf9;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .deg-rad {
+            background: #1f2e3a;
+            padding: 5px 12px;
+            border-radius: 60px;
+            display: inline-flex;
+            gap: 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .deg-rad span {
+            transition: all 0.2s;
+            padding: 0 4px;
+        }
+
+        .deg-rad .active-mode {
+            color: #ffb74d;
+            text-shadow: 0 0 3px #ff9800;
+            border-bottom: 2px solid #ffb74d;
+        }
+
+        /* Button Grid */
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px 10px;
+        }
+
+        button {
+            background: #1e2f3c;
+            border: none;
+            padding: 14px 0;
+            border-radius: 28px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #eef4ff;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            font-family: inherit;
+            letter-spacing: 0.5px;
+        }
+
+        button:active {
+            transform: scale(0.96);
+            box-shadow: 0 1px 2px black;
+        }
+
+        .func-btn {
+            background: #2c4b5e;
+            color: #ffecb3;
+            font-weight: 600;
+        }
+
+        .inv-func {
+            background: #3a2e3f;
+            color: #d9b8ff;
+        }
+
+        .num-btn {
+            background: #0f212e;
+            color: white;
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+
+        .op-btn {
+            background: #ff8c42;
+            color: #1e1e2f;
+            font-size: 1.5rem;
+            font-weight: bold;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+
+        .equal-btn {
+            background: #4caf50;
+            color: white;
+            font-size: 1.6rem;
+            grid-column: span 1;
+        }
+
+        .clear-btn {
+            background: #c44536;
+            color: white;
+        }
+
+        .special-btn {
+            background: #2c5a5a;
+        }
+
+        button:hover {
+            filter: brightness(1.08);
+        }
+
+        @media (max-width: 500px) {
+            .buttons {
+                gap: 8px;
+            }
+            button {
+                padding: 12px 0;
+                font-size: 1rem;
+            }
+            .expression {
+                font-size: 1.4rem;
+            }
+        }
+
+        footer {
+            text-align: center;
+            font-size: 0.7rem;
+            margin-top: 20px;
+            color: #6f8faa;
+        }
+    </style>
+</head>
+<body>
+<div class="calculator">
+    <div class="display-screen">
+        <input type="text" id="exprInput" class="expression" value="0" readonly>
+        <div class="mode-badge">
+            <span>🧮 BODMAS | SciCalc</span>
+            <div id="degRadToggle" class="deg-rad">
+                <span id="degModeLabel" class="active-mode">DEG</span>
+                <span>|</span>
+                <span id="radModeLabel">RAD</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="buttons">
+        <!-- Row 1: Special & parentheses & clear -->
+        <button class="func-btn" id="btn_parenL">(</button>
+        <button class="func-btn" id="btn_parenR">)</button>
+        <button class="clear-btn" id="btn_clear">AC</button>
+        <button class="clear-btn" id="btn_backspace">⌫</button>
+        <button class="op-btn" id="btn_divide">÷</button>
+
+        <!-- Row 2 -->
+        <button class="num-btn" id="btn_7">7</button>
+        <button class="num-btn" id="btn_8">8</button>
+        <button class="num-btn" id="btn_9">9</button>
+        <button class="op-btn" id="btn_multiply">×</button>
+        <button class="op-btn" id="btn_subtract">−</button>
+
+        <!-- Row 3 -->
+        <button class="num-btn" id="btn_4">4</button>
+        <button class="num-btn" id="btn_5">5</button>
+        <button class="num-btn" id="btn_6">6</button>
+        <button class="func-btn" id="btn_sin">sin</button>
+        <button class="func-btn" id="btn_cos">cos</button>
+
+        <!-- Row 4 -->
+        <button class="num-btn" id="btn_1">1</button>
+        <button class="num-btn" id="btn_2">2</button>
+        <button class="num-btn" id="btn_3">3</button>
+        <button class="func-btn" id="btn_tan">tan</button>
+        <button class="inv-func" id="btn_asin">sin⁻¹</button>
+
+        <!-- Row 5 -->
+        <button class="num-btn" id="btn_0">0</button>
+        <button class="num-btn" id="btn_dot">.</button>
+        <button class="special-btn" id="btn_reciprocal">1/x</button>
+        <button class="special-btn" id="btn_square">x²</button>
+        <button class="inv-func" id="btn_acos">cos⁻¹</button>
+
+        <!-- Row 6 -->
+        <button class="special-btn" id="btn_sqrt">√</button>
+        <button class="special-btn" id="btn_factorial">n!</button>
+        <button class="func-btn" id="btn_power">^</button>
+        <button class="func-btn" id="btn_mod">%</button>
+        <button class="inv-func" id="btn_atan">tan⁻¹</button>
+
+        <!-- Row 7: constants & logs & Equal -->
+        <button class="func-btn" id="btn_pi">π</button>
+        <button class="func-btn" id="btn_e">e</button>
+        <button class="func-btn" id="btn_log">log₁₀</button>
+        <button class="func-btn" id="btn_ln">ln</button>
+        <button class="equal-btn op-btn" id="btn_equal">=</button>
+
+        <!-- Row 8: extra ops to feel complete -->
+        <button class="func-btn" id="btn_plus">+</button>
+        <button class="special-btn" id="btn_abs">|x|</button>
+        <button class="special-btn" id="btn_floor">floor</button>
+        <button class="special-btn" id="btn_ceil">ceil</button>
+        <button class="func-btn" id="btn_exp">eˣ</button>
+    </div>
+    <footer>✓ BODMAS • Trig (DEG/RAD) • Inverse trig • Reciprocal • factorial</footer>
+</div>
+
+<script>
+    // ---------- DOM Elements ----------
+    const exprInput = document.getElementById('exprInput');
+    // Buttons
+    const clearBtn = document.getElementById('btn_clear');
+    const backBtn = document.getElementById('btn_backspace');
+    const equalBtn = document.getElementById('btn_equal');
+    const degRadToggle = document.getElementById('degRadToggle');
+    const degLabel = document.getElementById('degModeLabel');
+    const radLabel = document.getElementById('radModeLabel');
+
+    // ---------- Calculator State ----------
+    let currentExpression = "0";      // expression string shown
+    let degMode = true;               // true = DEG, false = RAD
+
+    // ---------- Helper: Update Display ----------
+    function updateDisplay() {
+        if (currentExpression === "" || currentExpression === null) currentExpression = "0";
+        exprInput.value = currentExpression;
+    }
+
+    // Add character or token safely
+    function appendToExpression(value) {
+        if (currentExpression === "0" && !isNaN(value) && value !== '.') {
+            currentExpression = value;
+        } else if (currentExpression === "0" && value === '.') {
+            currentExpression = "0.";
+        } else {
+            currentExpression += value;
+        }
+        updateDisplay();
+    }
+
+    // Wrap entire current expression with a function: funcName( expression )
+    function wrapWithFunction(funcName) {
+        let expr = currentExpression.trim();
+        if (expr === "" || expr === "0") expr = "0";
+        // Avoid duplicate wrapping madness but keep correct
+        currentExpression = `${funcName}(${expr})`;
+        updateDisplay();
+    }
+
+    // Wrap with specific unary operator like 1/(expr) , sqrt(expr), (expr)^2
+    function wrapWithCustom(wrapperType) {
+        let expr = currentExpression;
+        if (expr === "" || expr === "0") expr = "0";
+        switch (wrapperType) {
+            case 'reciprocal':
+                currentExpression = `1/(${expr})`;
+                break;
+            case 'square':
+                currentExpression = `(${expr})^2`;
+                break;
+            case 'sqrt':
+                currentExpression = `sqrt(${expr})`;
+                break;
+            case 'factorial':
+                currentExpression = `factorial(${expr})`;
+                break;
+            case 'abs':
+                currentExpression = `abs(${expr})`;
+                break;
+            case 'floor':
+                currentExpression = `floor(${expr})`;
+                break;
+            case 'ceil':
+                currentExpression = `ceil(${expr})`;
+                break;
+            case 'exp':
+                currentExpression = `exp(${expr})`;
+                break;
+            default: break;
+        }
+        updateDisplay();
+    }
+
+    // ----- Global helper functions for degree/radian trig & inverse trig conversion -----
+    // These will be used by math.evaluate after preprocessing
+    window.sindeg = function(x) { return Math.sin(x * Math.PI / 180); };
+    window.cosdeg = function(x) { return Math.cos(x * Math.PI / 180); };
+    window.tandeg = function(x) { return Math.tan(x * Math.PI / 180); };
+    // Inverse trig returning degrees
+    window.asindeg = function(x) { return Math.asin(x) * 180 / Math.PI; };
+    window.acosdeg = function(x) { return Math.acos(x) * 180 / Math.PI; };
+    window.atandeg = function(x) { return Math.atan(x) * 180 / Math.PI; };
+    
+    // Factorial (supports integer, non-negative)
+    window.factorial = function(n) {
+        if (n === undefined || isNaN(n)) return NaN;
+        n = Number(n);
+        if (!Number.isInteger(n) || n < 0) return NaN;
+        if (n === 0 || n === 1) return 1;
+        let result = 1;
+        for (let i = 2; i <= n; i++) result *= i;
+        return result;
+    };
+
+    // ----- Preprocess expression for DEG/RAD mode -----
+    // In RAD mode: keep standard sin/cos/tan/asin/acos/atan
+    // In DEG mode: replace sin( -> sindeg( , cos( -> cosdeg( , tan( -> tandeg(
+    // and asin( -> asindeg( , acos( -> acosdeg( , atan( -> atandeg(
+    function preprocessExpressionForMode(expr, isDegMode) {
+        if (!isDegMode) return expr;   // RAD mode: functions already correct
+        let processed = expr;
+        // Replace trigonometric functions (case sensitive, only function calls)
+        processed = processed.replace(/sin\(/g, 'sindeg(');
+        processed = processed.replace(/cos\(/g, 'cosdeg(');
+        processed = processed.replace(/tan\(/g, 'tandeg(');
+        processed = processed.replace(/asin\(/g, 'asindeg(');
+        processed = processed.replace(/acos\(/g, 'acosdeg(');
+        processed = processed.replace(/atan\(/g, 'atandeg(');
+        return processed;
+    }
+
+    // Evaluate expression with math.js and catch errors
+    function evaluateExpression(expr) {
+        try {
+            // Replace display multiplication symbol × -> * for math.js
+            let sanitized = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/\−/g, '-');
+            // Handle degree mode preprocessing
+            let finalExpr = preprocessExpressionForMode(sanitized, degMode);
+            // Use math.js evaluate (safe, BODMAS, supports all functions like sqrt, log, abs, floor, ceil, exp, factorial)
+            let result = math.evaluate(finalExpr);
+            // check for NaN, Infinity
+            if (isNaN(result) || !isFinite(result)) {
+                return "Error";
+            }
+            // Format result nicely (avoid too many decimals)
+            if (Math.abs(result) > 1e12) return result.toExponential(8);
+            if (Number.isInteger(result)) return result.toString();
+            return parseFloat(result.toFixed(10)).toString();
+        } catch (err) {
+            console.error(err);
+            return "Math Error";
+        }
+    }
+
+    // ========== Compute & Display Result ==========
+    function computeResult() {
+        if (!currentExpression || currentExpression.trim() === "") {
+            currentExpression = "0";
+            updateDisplay();
+            return;
+        }
+        let exprToEval = currentExpression;
+        let resultStr = evaluateExpression(exprToEval);
+        if (resultStr === "Error" || resultStr === "Math Error") {
+            currentExpression = "Error";
+            updateDisplay();
+            // Reset after 1.2 sec? optional user can press AC
+            setTimeout(() => {
+                if (currentExpression === "Error") {
+                    currentExpression = "0";
+                    updateDisplay();
+                }
+            }, 1500);
+        } else {
+            currentExpression = resultStr;
+            updateDisplay();
+        }
+    }
+
+    // ---------- Clear & Backspace ----------
+    function clearAll() {
+        currentExpression = "0";
+        updateDisplay();
+    }
+
+    function backspace() {
+        if (currentExpression === "Error") {
+            clearAll();
+            return;
+        }
+        if (currentExpression.length === 1 || (currentExpression.length === 2 && currentExpression.startsWith("-") && currentExpression[1] !== undefined)) {
+            currentExpression = "0";
+        } else {
+            currentExpression = currentExpression.slice(0, -1);
+            if (currentExpression === "") currentExpression = "0";
+        }
+        updateDisplay();
+    }
+
+    // ---- Toggle DEG/RAD Mode ----
+    function setDegMode(enableDeg) {
+        degMode = enableDeg;
+        if (degMode) {
+            degLabel.classList.add('active-mode');
+            radLabel.classList.remove('active-mode');
+        } else {
+            radLabel.classList.add('active-mode');
+            degLabel.classList.remove('active-mode');
+        }
+        // Optional: no auto re-evaluation, just mode toggles for future calc
+    }
+
+    // ---- Insert constant (π , e) ----
+    function insertConstant(constName) {
+        if (currentExpression === "0") currentExpression = constName;
+        else currentExpression += constName;
+        updateDisplay();
+    }
+
+    // ---- Insert standard operator ( + - × ÷ etc ) with smart handling ----
+    function insertOperator(opSymbol) {
+        let lastChar = currentExpression.slice(-1);
+        const operators = ['+', '-', '×', '÷', '*', '/', '^', '%'];
+        if (operators.includes(lastChar) || lastChar === '.') {
+            // replace last operator to avoid double ops
+            currentExpression = currentExpression.slice(0, -1) + opSymbol;
+        } else {
+            if (currentExpression === "0" && opSymbol !== '-') {
+                currentExpression = opSymbol;
+            } else {
+                currentExpression += opSymbol;
+            }
+        }
+        updateDisplay();
+    }
+
+    // ---- Parenthesis handling ----
+    function insertParenthesis(p) {
+        appendToExpression(p);
+    }
+
+    // ---- Special: log10, ln, power directly as operators ^ or functions ----
+    function applyFunction(funcName) {
+        let expr = currentExpression;
+        if (expr === "" || expr === "0") expr = "0";
+        if (funcName === 'log') currentExpression = `log10(${expr})`;
+        else if (funcName === 'ln') currentExpression = `ln(${expr})`;
+        else if (funcName === 'power') insertOperator('^');  // manual ^ button
+        else wrapWithFunction(funcName);
+        updateDisplay();
+    }
+
+    // ---------- Event Listeners Setup ----------
+    function setupButtons() {
+        // Numbers & dot
+        document.getElementById('btn_0').onclick = () => appendToExpression('0');
+        document.getElementById('btn_1').onclick = () => appendToExpression('1');
+        document.getElementById('btn_2').onclick = () => appendToExpression('2');
+        document.getElementById('btn_3').onclick = () => appendToExpression('3');
+        document.getElementById('btn_4').onclick = () => appendToExpression('4');
+        document.getElementById('btn_5').onclick = () => appendToExpression('5');
+        document.getElementById('btn_6').onclick = () => appendToExpression('6');
+        document.getElementById('btn_7').onclick = () => appendToExpression('7');
+        document.getElementById('btn_8').onclick = () => appendToExpression('8');
+        document.getElementById('btn_9').onclick = () => appendToExpression('9');
+        document.getElementById('btn_dot').onclick = () => appendToExpression('.');
+
+        // Operators + - × ÷ ^ % 
+        document.getElementById('btn_plus').onclick = () => insertOperator('+');
+        document.getElementById('btn_subtract').onclick = () => insertOperator('-');
+        document.getElementById('btn_multiply').onclick = () => insertOperator('×');
+        document.getElementById('btn_divide').onclick = () => insertOperator('÷');
+        document.getElementById('btn_power').onclick = () => insertOperator('^');
+        document.getElementById('btn_mod').onclick = () => insertOperator('%');
+
+        // Parentheses
+        document.getElementById('btn_parenL').onclick = () => insertParenthesis('(');
+        document.getElementById('btn_parenR').onclick = () => insertParenthesis(')');
+
+        // Clear & back
+        clearBtn.onclick = clearAll;
+        backBtn.onclick = backspace;
+
+        // Trigonometric & inverse
+        document.getElementById('btn_sin').onclick = () => wrapWithFunction('sin');
+        document.getElementById('btn_cos').onclick = () => wrapWithFunction('cos');
+        document.getElementById('btn_tan').onclick = () => wrapWithFunction('tan');
+        document.getElementById('btn_asin').onclick = () => wrapWithFunction('asin');
+        document.getElementById('btn_acos').onclick = () => wrapWithFunction('acos');
+        document.getElementById('btn_atan').onclick = () => wrapWithFunction('atan');
+
+        // 1/x, x², √, factorial, abs, floor, ceil, eˣ
+        document.getElementById('btn_reciprocal').onclick = () => wrapWithCustom('reciprocal');
+        document.getElementById('btn_square').onclick = () => wrapWithCustom('square');
+        document.getElementById('btn_sqrt').onclick = () => wrapWithCustom('sqrt');
+        document.getElementById('btn_factorial').onclick = () => wrapWithCustom('factorial');
+        document.getElementById('btn_abs').onclick = () => wrapWithCustom('abs');
+        document.getElementById('btn_floor').onclick = () => wrapWithCustom('floor');
+        document.getElementById('btn_ceil').onclick = () => wrapWithCustom('ceil');
+        document.getElementById('btn_exp').onclick = () => wrapWithCustom('exp');
+
+        // Constants
+        document.getElementById('btn_pi').onclick = () => insertConstant('pi');
+        document.getElementById('btn_e').onclick = () => insertConstant('e');
+
+        // log & ln
+        document.getElementById('btn_log').onclick = () => applyFunction('log');
+        document.getElementById('btn_ln').onclick = () => applyFunction('ln');
+
+        // equal
+        equalBtn.onclick = computeResult;
+
+        // DEG/RAD Toggle
+        degRadToggle.onclick = () => {
+            setDegMode(!degMode);
+        };
+    }
+
+    // Additional keyboard support for better UX
+    function handleKeyboard(e) {
+        const key = e.key;
+        // Numbers & operators
+        if (/[0-9]/.test(key)) {
+            appendToExpression(key);
+            e.preventDefault();
+        } else if (key === '.') {
+            appendToExpression('.');
+            e.preventDefault();
+        } else if (key === '+' || key === '-' || key === '*' || key === '/') {
+            let opMap = { '*': '×', '/': '÷', '+': '+', '-': '-' };
+            if (key === '*') insertOperator('×');
+            else if (key === '/') insertOperator('÷');
+            else insertOperator(key);
+            e.preventDefault();
+        } else if (key === '^') {
+            insertOperator('^');
+            e.preventDefault();
+        } else if (key === '%') {
+            insertOperator('%');
+            e.preventDefault();
+        } else if (key === '(') {
+            insertParenthesis('(');
+            e.preventDefault();
+        } else if (key === ')') {
+            insertParenthesis(')');
+            e.preventDefault();
+        } else if (key === 'Enter') {
+            computeResult();
+            e.preventDefault();
+        } else if (key === 'Backspace') {
+            backspace();
+            e.preventDefault();
+        } else if (key === 'Escape') {
+            clearAll();
+            e.preventDefault();
+        } else if (key === 's' && !e.ctrlKey) {
+            wrapWithFunction('sin');
+            e.preventDefault();
+        } else if (key === 'c' && !e.ctrlKey) {
+            wrapWithFunction('cos');
+            e.preventDefault();
+        } else if (key === 't' && !e.ctrlKey) {
+            wrapWithFunction('tan');
+            e.preventDefault();
+        }
+    }
+
+    // initialize
+    function init() {
+        setupButtons();
+        setDegMode(true);   // default DEG
+        updateDisplay();
+        window.addEventListener('keydown', handleKeyboard);
+    }
+
+    init();
+</script>
+</body>
+</html>
