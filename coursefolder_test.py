@@ -3,12 +3,13 @@ from bs4 import BeautifulSoup
 import re
 import os
 from typing import List, Optional
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 # ==========================
 # Telegram Settings (from GitHub Secrets)
 # ==========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = "@Channelboottest"     # e.g., "@Channelboottest"
+CHANNEL = os.environ["CHANNEL_ID"]          # e.g., "@Channelboottest"
 
 # ==========================
 # Persistent Storage
@@ -24,6 +25,25 @@ def load_posted_links() -> set:
 def save_posted_link(link: str):
     with open(POSTED_FILE, "a", encoding="utf-8") as f:
         f.write(link + "\n")
+
+# ==========================
+# URL cleaning: keep only couponCode
+# ==========================
+def clean_udemy_url(url: str) -> str:
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    allowed = {}
+    if "couponCode" in params:
+        allowed["couponCode"] = params["couponCode"][0]
+    new_query = urlencode(allowed)
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        new_query,
+        parsed.fragment
+    ))
 
 # ==========================
 # Robust HTTP client (avoid 406)
@@ -80,12 +100,10 @@ def extract_udemy_link(coursefolder_url: str) -> Optional[str]:
             import json
             data = json.loads(script.string)
             if isinstance(data, dict):
-                # Typical offer structure
                 if "offers" in data and isinstance(data["offers"], dict):
                     url = data["offers"].get("url")
                     if url and "udemy.com/course/" in url:
                         return url
-                # Direct URL property
                 if "url" in data and "udemy.com/course/" in data["url"]:
                     return data["url"]
         except:
@@ -109,8 +127,18 @@ def scrape_telegram_channel_links(channel: str = "coursefolder", limit: int = 20
     for msg in messages[:limit]:
         for a in msg.find_all("a", href=True):
             href = a["href"]
-            if re.match(r"https?://coursefolder\.net/", href):
-                coursefolder_urls.append(href)
+            if not re.match(r"https?://coursefolder\.net/", href):
+                continue
+
+            # Filter out useless links
+            if "/liveLanguage/" in href:
+                continue
+            if "/liveCategory/" in href:
+                continue
+            if "live-free-udemy-coupon" in href:
+                continue
+
+            coursefolder_urls.append(href)
 
     # Remove duplicates
     return list(dict.fromkeys(coursefolder_urls))
@@ -164,6 +192,10 @@ def main():
         if not udemy:
             print(f"⏭️ No Udemy link in {cf_url}")
             continue
+
+        # Clean the URL: keep only couponCode parameter
+        udemy = clean_udemy_url(udemy)
+
         if udemy in posted:
             print(f"⏩ Already posted: {udemy}")
             continue
