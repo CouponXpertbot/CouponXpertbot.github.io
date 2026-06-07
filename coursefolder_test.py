@@ -161,7 +161,7 @@ def is_course_truly_free(udemy_url: str) -> bool:
         
         try:
             print(f"🔍 Validating: {udemy_url}")
-            page.goto(udemy_url, timeout=30000)
+            page.goto(udemy_url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_load_state("networkidle")
 
             # Try multiple selectors for price text
