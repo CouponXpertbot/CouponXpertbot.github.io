@@ -121,3 +121,6 @@ https://www.udemy.com/course/css-bootstrap-javascript-and-php-stack-complete-cou
 https://www.udemy.com/course/the-complete-mongodb-build-scale-query-nosql-databases/?couponCode=58294F18DADD1ED5CB06
 https://www.udemy.com/course/javascript-front-end-web-development-with-javascript/?couponCode=4C7C173567BE3384520F
 https://www.udemy.com/course/php-laravel-10-for-2023-build-complete-job-portal/?couponCode=LARAVELJOBPORTAL69
+https://www.udemy.com/course/gen-ai-for-hr/?couponCode=1E13FB7DFC30C5210800
+https://www.udemy.com/course/modern-hr-generative-ai/?couponCode=315AC59E06239F92E7B7
+https://www.udemy.com/course/scrum-master-training/?couponCode=230426_FREE
