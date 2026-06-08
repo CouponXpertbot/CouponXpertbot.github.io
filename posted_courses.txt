@@ -118,3 +118,6 @@ https://www.udemy.com/course/learn-blockchain-and-cryptocurrency-from-beginning/
 https://www.udemy.com/course/html-css-made-easy-web-design-front-end-web-development/?couponCode=8437C3C9CD71B20114E0
 https://www.udemy.com/course/complete-python-programming-course-from-basics-to-advanced/?couponCode=1C6CED28FAADDF1A3D1C
 https://www.udemy.com/course/css-bootstrap-javascript-and-php-stack-complete-course/?couponCode=1A348D889455645CF199
+https://www.udemy.com/course/the-complete-mongodb-build-scale-query-nosql-databases/?couponCode=58294F18DADD1ED5CB06
+https://www.udemy.com/course/javascript-front-end-web-development-with-javascript/?couponCode=4C7C173567BE3384520F
+https://www.udemy.com/course/php-laravel-10-for-2023-build-complete-job-portal/?couponCode=LARAVELJOBPORTAL69
