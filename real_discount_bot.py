@@ -85,7 +85,7 @@ def extract_offer_links_from_category(page, category_url: str) -> list:
     """
     print(f"📂 Scanning category page: {category_url}")
     page.goto(category_url, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_load_state("networkidle")
+   #page.wait_for_load_state("networkidle")
     
     # Find all <a> tags whose href matches https://real.discount/offer/...
     offer_links = []
