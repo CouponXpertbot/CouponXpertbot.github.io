@@ -1,24 +1,16 @@
-import requests
-from bs4 import BeautifulSoup
 import re
 import os
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from playwright.sync_api import sync_playwright
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = "@Channelboottest"
-POSTED_FILE = "posted_courses.txt"
+# --- Configuration ---
+# Replace with the list of course URLs from real.discount you want to check
+REAL_DISCOUNT_URLS = [
+    "https://real.discount/offer/claude-ai-for-data-analysis-business-intelligence-491",
+    "https://real.discount/topics/top_free_courses/Python",
+]
 
-def load_posted_links() -> set:
-    if not os.path.exists(POSTED_FILE):
-        return set()
-    with open(POSTED_FILE, "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f if line.strip())
-
-def save_posted_link(link: str):
-    with open(POSTED_FILE, "a", encoding="utf-8") as f:
-        f.write(link + "\n")
-
+# --- Helper: URL Cleaning Function (copied from your bots) ---
 def clean_udemy_url(url: str) -> str:
     parsed = urlparse(url)
     params = parse_qs(parsed.query)
@@ -26,93 +18,88 @@ def clean_udemy_url(url: str) -> str:
     if "couponCode" in params:
         allowed["couponCode"] = params["couponCode"][0]
     new_query = urlencode(allowed)
-    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        new_query,
+        parsed.fragment
+    ))
 
-def get_html(url: str) -> str:
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    resp = requests.get(url, headers=headers, timeout=30)
-    resp.raise_for_status()
-    return resp.text
+def scrape_real_discount(page, course_url: str):
+    print(f"🌐 Processing: {course_url}")
+    # 1. Go to the course page and wait for it to load
+    page.goto(course_url, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_load_state("networkidle")
 
-def scrape_real_discount() -> list:
-    udemy_urls = []
-    try:
-        url = "https://real.discount/"
-        print("🌐 Scraping Real.Discount")
-        soup = BeautifulSoup(get_html(url), "html.parser")
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if "udemy.com/course/" in href and "couponCode" in href:
-                udemy_urls.append(clean_udemy_url(href))
-        if not udemy_urls:
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                if "/category/" in href and href.startswith("https://real.discount"):
-                    cat_soup = BeautifulSoup(get_html(href), "html.parser")
-                    for ca in cat_soup.find_all("a", href=True):
-                        ch = ca["href"]
-                        if "udemy.com/course/" in ch and "couponCode" in ch:
-                            udemy_urls.append(clean_udemy_url(ch))
-        print(f"   Found {len(udemy_urls)} Udemy links")
-    except Exception as e:
-        print(f"⚠️ Real.Discount error: {e}")
-    return list(dict.fromkeys(udemy_urls))
+    # 2. Find the 'Get Course' button and get its href
+    # The selector may need adjusting if the site's HTML changes.
+    button = page.locator("a:has-text('Get Course')").first
+    if not button:
+        print(f"   ⚠️ Could not find 'Get Course' button on {course_url}")
+        return None
 
-def is_course_truly_free(page, udemy_url: str) -> bool:
-    try:
-        print(f"🔍 Validating: {udemy_url}")
-        page.goto(udemy_url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_load_state("networkidle")
-        price_selectors = ["[data-purpose='price-text']", ".price-text", ".ud-component--course-price--price-part"]
-        price_text = None
-        for sel in price_selectors:
-            el = page.query_selector(sel)
-            if el:
-                price_text = el.inner_text().strip().lower()
-                break
-        if not price_text:
-            body = page.inner_text("body").lower()
-            return "free" in body and not re.search(r'₹\d{2,}', body)
-        price_text = price_text.lower()
-        if price_text in ["free", "₹0", "$0", "€0", "0", "0.00"] or "100% off" in price_text:
-            return True
-        return False
-    except Exception as e:
-        print(f"⚠️ Validation error: {e}")
-        return False
+    affiliate_link = button.get_attribute("href")
+    if not affiliate_link:
+        print(f"   ⚠️ Found button but no href on {course_url}")
+        return None
 
-def send_telegram_message(udemy_link: str, title: str) -> bool:
-    message = f"🎓 FREE UDEMY COURSE\n\n📘 {title}\n\n🔗 {udemy_link}\n\n⚠️ Coupon may expire soon\n\n👇 More: https://t.me/CouponXpert"
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    try:
-        r = requests.post(url, data={"chat_id": CHANNEL, "text": message}, timeout=10)
-        return r.status_code == 200
-    except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
-        return False
+    print(f"   🧩 Found affiliate/tracking link: {affiliate_link}")
+
+    # 3. Extract the final Udemy URL from the affiliate link
+    parsed_aff_link = urlparse(affiliate_link)
+    query_params = parse_qs(parsed_aff_link.query)
+
+    final_udemy_url = None
+    if "murl" in query_params:
+        # This is the standard pattern for Linksynergy links
+        encoded_murl = query_params["murl"][0]
+        final_udemy_url = encoded_murl
+        print(f"   🎯 Extracted murl parameter: {final_udemy_url}")
+
+    if not final_udemy_url:
+        # Fallback: maybe it's a direct Udemy link
+        if "udemy.com/course/" in affiliate_link:
+            final_udemy_url = affiliate_link
+
+    if not final_udemy_url:
+        print(f"   ❌ Could not extract a final Udemy URL from: {course_url}")
+        return None
+
+    # Decode the URL (Linksynergy links are URL-encoded)
+    import urllib.parse
+    final_udemy_url = urllib.parse.unquote(final_udemy_url)
+    print(f"   🔗 Decoded Udemy URL: {final_udemy_url}")
+
+    # Clean the URL, keeping only the couponCode
+    cleaned_url = clean_udemy_url(final_udemy_url)
+    print(f"   ✨ Cleaned Udemy URL: {cleaned_url}")
+    return cleaned_url
 
 def main():
-    print("🔍 Bot (Real.Discount) started")
-    posted = load_posted_links()
-    udemy_links = scrape_real_discount()
+    print("🚀 Real.discount Scraper Started")
+    
+    # Launch the browser once
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        new_posts = 0
-        for url in udemy_links:
-            if new_posts >= 3: break
-            if url in posted: continue
-            if is_course_truly_free(page, url):
-                title = url.split('/course/')[1].split('/')[0].replace('-', ' ').title()
-                if send_telegram_message(url, title):
-                    save_posted_link(url)
-                    posted.add(url)
-                    new_posts += 1
-                    print(f"✅ Posted #{new_posts}")
-            else:
-                print(f"⏭️ Expired/paid: {url}")
+
+        all_cleaned_links = []
+        for course_url in REAL_DISCOUNT_URLS:
+            cleaned_link = scrape_real_discount(page, course_url)
+            if cleaned_link:
+                all_cleaned_links.append(cleaned_link)
+        
         browser.close()
-    print(f"Done. Posted {new_posts}")
+
+    # --- Optional: Integrate with your existing bot logic ---
+    # Here, you would loop through all_cleaned_links,
+    # check them against posted_courses.txt, validate them with Playwright,
+    # and then post to Telegram.
+    print("\n✅ Scraping completed. Found Udemy links:")
+    for link in all_cleaned_links:
+        print(f"   {link}")
 
 if __name__ == "__main__":
     main()
