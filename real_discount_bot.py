@@ -33,7 +33,114 @@ def clean_udemy_url(url: str) -> str:
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
 
 # ==========================
-# Extract Udemy from a single offer page
+# Extract all offer links from a page (with scrolling and pagination)
+# ==========================
+def extract_all_offer_links_from_page(page, start_url: str, max_scrolls: int = 10) -> list:
+    """
+    Loads a page, scrolls to trigger lazy loading, then extracts all /offer/ links.
+    Also follows pagination (Next page) and collects links across multiple pages.
+    """
+    print(f"📂 Scanning: {start_url}")
+    page.goto(start_url, wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_load_state("load", timeout=60000)
+    time.sleep(2)
+
+    all_offers = set()
+    current_url = start_url
+    page_number = 1
+
+    while True:
+        print(f"   Scrolling page {page_number} to load content...")
+        # Scroll repeatedly to load dynamic content
+        last_height = page.evaluate("document.body.scrollHeight")
+        for _ in range(max_scrolls):
+            page.evaluate("window.scrollBy(0, 800)")
+            time.sleep(1.5)
+            new_height = page.evaluate("document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
+
+        # Extract all offer links currently on the page
+        links = page.query_selector_all("a")
+        for link in links:
+            href = link.get_attribute("href")
+            if href and "/offer/" in href:
+                full_url = urljoin("https://real.discount", href)
+                if full_url.startswith("https://real.discount/offer/"):
+                    all_offers.add(full_url)
+
+        print(f"   Found {len(all_offers)} unique offers so far on page {page_number}")
+
+        # Look for "Next" pagination link
+        next_link = None
+        # Common selectors for next page
+        next_selectors = [
+            "a:has-text('Next')",
+            "a:has-text('next')",
+            "a[rel='next']",
+            ".pagination .next a",
+            ".next-page a"
+        ]
+        for sel in next_selectors:
+            try:
+                elem = page.query_selector(sel)
+                if elem:
+                    next_link = elem.get_attribute("href")
+                    if next_link:
+                        break
+            except:
+                continue
+
+        if not next_link:
+            print("   No more pages found.")
+            break
+
+        # Go to next page
+        next_url = urljoin(current_url, next_link)
+        if next_url == current_url:
+            break
+        print(f"   Going to next page: {next_url}")
+        page.goto(next_url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_load_state("load", timeout=60000)
+        time.sleep(2)
+        current_url = next_url
+        page_number += 1
+
+    return list(all_offers)
+
+# ==========================
+# Discover category/topic pages from the homepage
+# ==========================
+def discover_category_pages(page) -> list:
+    """Scans the homepage for links to category/topic pages."""
+    print("🌐 Discovering category pages from homepage...")
+    page.goto("https://real.discount/", wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_load_state("load", timeout=60000)
+    time.sleep(2)
+    # Scroll a bit to reveal all nav links
+    page.evaluate("window.scrollBy(0, 300)")
+    time.sleep(1)
+
+    category_urls = set()
+    links = page.query_selector_all("a")
+    for link in links:
+        href = link.get_attribute("href")
+        if href and (
+            "/topics/" in href or
+            "/latest-coupons" in href or
+            "/freebies" in href or
+            "/category/" in href
+        ):
+            full_url = urljoin("https://real.discount", href)
+            if full_url.startswith("https://real.discount") and not full_url.endswith("#"):
+                category_urls.add(full_url)
+
+    print(f"   Found {len(category_urls)} category pages: {list(category_urls)[:5]}...")
+    return list(category_urls)
+
+# ==========================
+# Extract Udemy from a single offer page (same as before)
 # ==========================
 def extract_udemy_from_offer_page(page, offer_url: str) -> str | None:
     print(f"   🔍 Processing offer page: {offer_url}")
@@ -43,7 +150,7 @@ def extract_udemy_from_offer_page(page, offer_url: str) -> str | None:
     
     button = page.locator("a:has-text('Get Course')").first
     if not button.count():
-        print(f"   ⚠️ No 'Get Course' button found on {offer_url}")
+        print(f"   ⚠️ No 'Get Course' button found")
         return None
     
     affiliate_link = button.get_attribute("href")
@@ -62,51 +169,6 @@ def extract_udemy_from_offer_page(page, offer_url: str) -> str | None:
             return None
     
     return clean_udemy_url(final_url)
-
-# ==========================
-# Extract all offer links from any page (category or homepage)
-# ==========================
-def extract_offer_links_from_page(page, url: str) -> list:
-    print(f"📂 Scanning page for offers: {url}")
-    page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_load_state("load", timeout=60000)
-    time.sleep(2)
-    page.evaluate("window.scrollBy(0, 800)")
-    time.sleep(2)
-    
-    offer_links = set()
-    links = page.query_selector_all("a")
-    for link in links:
-        href = link.get_attribute("href")
-        if href and "/offer/" in href:
-            full_url = urljoin("https://real.discount", href)
-            if full_url.startswith("https://real.discount/offer/"):
-                offer_links.add(full_url)
-    return list(offer_links)
-
-# ==========================
-# Extract category/topic links from a page (for crawling)
-# ==========================
-def extract_category_links(page, base_url: str) -> list:
-    """Find links that point to /topics/, /latest-coupons, etc."""
-    page.goto(base_url, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_load_state("load", timeout=60000)
-    time.sleep(2)
-    
-    category_links = set()
-    links = page.query_selector_all("a")
-    for link in links:
-        href = link.get_attribute("href")
-        if href and (
-            "/topics/" in href or
-            "/latest-coupons" in href or
-            "/freebies" in href or
-            "/category/" in href
-        ):
-            full_url = urljoin("https://real.discount", href)
-            if full_url.startswith("https://real.discount"):
-                category_links.add(full_url)
-    return list(category_links)
 
 # ==========================
 # Validate Udemy page (handle cookies and popups)
@@ -172,18 +234,12 @@ def send_telegram_message(udemy_link: str, title: str) -> bool:
         return False
 
 # ==========================
-# Main Crawler
+# Main crawler
 # ==========================
 def main():
     print("🚀 Real.Discount Full-Site Crawler + Bot Started")
     posted = load_posted_links()
-    
-    # BFS queues
-    category_queue = deque(["https://real.discount/"])
-    visited_categories = set()
-    all_offer_urls = set()
-    MAX_PAGES = 100   # safety limit
-    
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -191,47 +247,41 @@ def main():
             viewport={"width": 1280, "height": 800}
         )
         page = context.new_page()
-        
-        # Phase 1: Discover all category and offer pages
-        print("🌐 Phase 1: Crawling categories and offers...")
-        while category_queue and len(visited_categories) < MAX_PAGES:
-            cat_url = category_queue.popleft()
-            if cat_url in visited_categories:
-                continue
-            visited_categories.add(cat_url)
-            print(f"\n📁 Crawling category: {cat_url}")
-            
-            # Extract offers from this category page
-            offers = extract_offer_links_from_page(page, cat_url)
+
+        # Step 1: Discover all category pages from homepage
+        category_pages = discover_category_pages(page)
+        # Also include the homepage itself (it contains offers)
+        all_pages_to_crawl = ["https://real.discount/"] + category_pages
+        all_pages_to_crawl = list(dict.fromkeys(all_pages_to_crawl))  # deduplicate
+        print(f"\n📁 Total pages to crawl for offers: {len(all_pages_to_crawl)}")
+
+        # Step 2: Crawl each page (with scrolling & pagination) to collect all offer links
+        all_offer_urls = set()
+        for page_url in all_pages_to_crawl[:20]:  # Limit to 20 categories to avoid too many requests
+            offers = extract_all_offer_links_from_page(page, page_url, max_scrolls=8)
             all_offer_urls.update(offers)
-            print(f"   Found {len(offers)} offers (total unique: {len(all_offer_urls)})")
-            
-            # Extract more category links to follow
-            new_cats = extract_category_links(page, cat_url)
-            for nc in new_cats:
-                if nc not in visited_categories:
-                    category_queue.append(nc)
-        
+            print(f"   Running total unique offers: {len(all_offer_urls)}")
+
         print(f"\n✅ Discovered {len(all_offer_urls)} unique offer pages.")
-        
-        # Phase 2: Process each offer (extract Udemy link, validate, post)
-        print("\n🚀 Phase 2: Processing offers...")
+
+        # Step 3: Process each offer (extract Udemy link, validate, post)
+        print("\n🚀 Processing offers...")
         new_posts = 0
         MAX_NEW = 3
-        
-        for offer_url in list(all_offer_urls)[:MAX_PAGES]:  # limit processing
+
+        for offer_url in list(all_offer_urls):
             if new_posts >= MAX_NEW:
                 break
-            
+
             udemy = extract_udemy_from_offer_page(page, offer_url)
             if not udemy:
                 print(f"⏭️ No Udemy link in {offer_url}")
                 continue
-            
+
             if udemy in posted:
                 print(f"⏩ Already posted: {udemy}")
                 continue
-            
+
             if is_course_truly_free(page, udemy):
                 match = re.search(r'/course/([^/?]+)', udemy)
                 title = match.group(1).replace('-', ' ').title() if match else "Udemy Course"
@@ -244,10 +294,10 @@ def main():
                     print(f"❌ Telegram send failed for {title}")
             else:
                 print(f"⏭️ Expired/paid: {udemy}")
-        
+
         browser.close()
-    
-    print(f"\n🎉 Done. Posted {new_posts} new courses. Crawled {len(visited_categories)} pages, found {len(all_offer_urls)} offers.")
+
+    print(f"\n🎉 Done. Posted {new_posts} new courses. Found {len(all_offer_urls)} total offers.")
 
 if __name__ == "__main__":
     main()
