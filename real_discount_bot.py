@@ -1,7 +1,6 @@
 import requests
 import re
 import os
-import json
 import time
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from playwright.sync_api import sync_playwright
@@ -33,61 +32,55 @@ def clean_udemy_url(url: str) -> str:
     return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
 
 # ==========================
-# Extract Udemy offers by intercepting network responses
+# Fetch offers from Real.discount API (direct JSON)
 # ==========================
-def fetch_offers_via_playwright():
-    """
-    Uses Playwright to load real.discount and capture the JSON response
-    that contains all offer data. Returns list of (title, udemy_url).
-    """
-    offers = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            viewport={"width": 1280, "height": 800}
-        )
-        page = context.new_page()
+def fetch_offers_from_api(page=1, per_page=50):
+    """Fetch one page of offers from the official API."""
+    url = f"https://real.discount/wp-json/rd/v1/offers?page={page}&per_page={per_page}&topic=all&type=free"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            return None
+        return resp.json()
+    except:
+        return None
 
-        # Set up a listener to capture JSON responses
-        def handle_response(response):
-            # Look for URLs that match the pattern of the offer API
-            if "wp-json/rd/v1/offers" in response.url:
-                try:
-                    data = response.json()
-                    if isinstance(data, list):
-                        for item in data:
-                            title = item.get("title") or item.get("name")
-                            udemy = item.get("redirect_url") or item.get("offer_url")
-                            if udemy and "udemy.com/course/" in udemy:
-                                offers.append((title, clean_udemy_url(udemy)))
-                except:
-                    pass
-
-        page.on("response", handle_response)
-
-        # Load the homepage and scroll to trigger API calls
-        print("🌐 Loading real.discount...")
-        page.goto("https://real.discount/", wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_load_state("load", timeout=60000)
-        # Scroll several times to load more offers
-        for _ in range(5):
-            page.evaluate("window.scrollBy(0, 800)")
-            time.sleep(2)
-
-        # Wait a bit for all network requests to finish
-        time.sleep(5)
-        browser.close()
-
-    return offers
+def get_all_udemy_offers(max_pages=25):
+    """Fetch all pages and extract Udemy links with titles."""
+    all_offers = []
+    for page in range(1, max_pages + 1):
+        print(f"📡 Fetching page {page}...")
+        data = fetch_offers_from_api(page, per_page=50)
+        if not data or not isinstance(data, list) or len(data) == 0:
+            print(f"   No more offers on page {page} (or invalid response).")
+            break
+        
+        for offer in data:
+            # The API returns 'redirect_url' which is the direct Udemy coupon link
+            udemy = offer.get("redirect_url") or offer.get("offer_url")
+            if not udemy or "udemy.com/course/" not in udemy:
+                continue
+            title = offer.get("title") or offer.get("name") or "Udemy Course"
+            all_offers.append({
+                "title": title,
+                "url": clean_udemy_url(udemy)
+            })
+        print(f"   Found {len(data)} offers, total so far: {len(all_offers)}")
+        time.sleep(0.5)  # polite
+    return all_offers
 
 # ==========================
-# Validate Udemy page (Playwright)
+# Validate Udemy page with Playwright
 # ==========================
 def is_course_truly_free(page, udemy_url: str) -> bool:
     try:
         print(f"🔍 Validating: {udemy_url}")
         page.goto(udemy_url, wait_until="domcontentloaded", timeout=60000)
+        # Dismiss cookie popup if present
         try:
             accept = page.locator("button:has-text('Accept')").first
             if accept.count():
@@ -117,11 +110,7 @@ def is_course_truly_free(page, udemy_url: str) -> bool:
 
         if not price_text:
             body = page.inner_text("body").lower()
-            if "free" in body and not re.search(r'₹\d{2,}', body):
-                return True
-            if "100% off" in body:
-                return True
-            return False
+            return ("free" in body and not re.search(r'₹\d{2,}', body)) or "100% off" in body
 
         if price_text in ["free", "₹0", "$0", "€0", "0", "0.00"]:
             return True
@@ -145,25 +134,18 @@ def send_telegram_message(udemy_link: str, title: str) -> bool:
         return False
 
 def main():
-    print("🚀 Real.Discount Network Interceptor Bot Started")
+    print("🚀 Real.Discount API Bot Started")
     posted = load_posted_links()
 
-    # Fetch offers using Playwright network interception
-    offers = fetch_offers_via_playwright()
-    print(f"✅ Found {len(offers)} offers via network capture.")
+    # 1. Get all offers from API (no Playwright for discovery)
+    offers = get_all_udemy_offers(max_pages=25)   # 25 pages * 50 = 1250 offers max
+    print(f"\n✅ Total unique Udemy offers fetched: {len(offers)}")
 
     if not offers:
-        print("⚠️ No offers captured. The website may have changed its API pattern.")
+        print("⚠️ No offers found. The API may have changed. Exiting.")
         return
 
-    # Deduplicate by Udemy URL
-    unique_offers = {}
-    for title, url in offers:
-        if url not in unique_offers:
-            unique_offers[url] = title
-
-    print(f"📊 Unique Udemy links: {len(unique_offers)}")
-
+    # 2. Validate and post
     new_posts = 0
     MAX_NEW = 3
 
@@ -175,22 +157,26 @@ def main():
         )
         page = context.new_page()
 
-        for udemy_url, title in unique_offers.items():
+        for offer in offers:
             if new_posts >= MAX_NEW:
                 break
-            if udemy_url in posted:
-                print(f"⏩ Already posted: {udemy_url}")
+
+            udemy = offer["url"]
+            if udemy in posted:
+                print(f"⏩ Already posted: {udemy}")
                 continue
-            if is_course_truly_free(page, udemy_url):
-                if send_telegram_message(udemy_url, title):
-                    save_posted_link(udemy_url)
-                    posted.add(udemy_url)
+
+            if is_course_truly_free(page, udemy):
+                title = offer["title"]
+                if send_telegram_message(udemy, title):
+                    save_posted_link(udemy)
+                    posted.add(udemy)
                     new_posts += 1
                     print(f"✅ Posted #{new_posts}: {title}")
                 else:
                     print(f"❌ Telegram send failed for {title}")
             else:
-                print(f"⏭️ Expired/paid: {udemy_url}")
+                print(f"⏭️ Expired/paid: {udemy}")
 
         browser.close()
 
