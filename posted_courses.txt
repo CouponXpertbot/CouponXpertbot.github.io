@@ -155,3 +155,6 @@ https://www.udemy.com/course/essential-ai-guide-from-fundamentals-to-real-world-
 https://www.udemy.com/course/ai-governance-strategy-policy-responsible-deployment/?couponCode=JUNFREE01
 https://www.udemy.com/course/mcp-for-leaders-architecting-context-driven-ai/?couponCode=JUNFREE01
 https://www.udemy.com/course/rag-strategy-execution-build-enterprise-knowledge-systems/?couponCode=JUNFREE03
+https://www.udemy.com/course/chief-ai-officer-program-lead-ai-strategy-governance/?couponCode=JUNFREE01
+https://www.udemy.com/course/quantum-computing-for-decision-makers-executive-essentials/?couponCode=JUNFREE03
+https://www.udemy.com/course/mastering-django/?couponCode=83467A3E472E3801C33B
