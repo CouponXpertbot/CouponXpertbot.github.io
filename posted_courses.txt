@@ -161,3 +161,4 @@ https://www.udemy.com/course/mastering-django/?couponCode=83467A3E472E3801C33B
 https://www.udemy.com/course/programming-for-scientific-research/?couponCode=KEEPLEARNING
 https://www.udemy.com/course/python-for-researchers/?couponCode=D6FBCF24B7AEF29284D3
 https://www.udemy.com/course/ai-for-geospatial-analysis/?couponCode=E19D4FE0CC5472F55FCB
+https://www.udemy.com/course/geospatial-ai-deep-learning/?couponCode=4FDA48F81AB688595BE8
