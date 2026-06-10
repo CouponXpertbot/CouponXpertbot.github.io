@@ -152,3 +152,6 @@ https://www.udemy.com/course/essential-adobe-lightroom-course-for-photo-editing/
 https://www.udemy.com/course/chief-ai-officer-caio-leading-enterprise-ai-transformation/?couponCode=JUNFREE01
 https://www.udemy.com/course/brain-computer-interfaces-neurotechnology/?couponCode=JUNFREE03
 https://www.udemy.com/course/essential-ai-guide-from-fundamentals-to-real-world-impact/?couponCode=JUNFREE01
+https://www.udemy.com/course/ai-governance-strategy-policy-responsible-deployment/?couponCode=JUNFREE01
+https://www.udemy.com/course/mcp-for-leaders-architecting-context-driven-ai/?couponCode=JUNFREE01
+https://www.udemy.com/course/rag-strategy-execution-build-enterprise-knowledge-systems/?couponCode=JUNFREE03
