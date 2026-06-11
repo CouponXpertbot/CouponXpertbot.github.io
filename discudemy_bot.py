@@ -1,305 +1,239 @@
-"""
-couponami.com — Playwright Scraper for 100% Free Udemy Courses
-==============================================================
-Understands the EXACT 3-page flow of couponami.com:
-
-  Page 1 → /all, /all/2, /all/3 ...  (listings, price shown as $X->$0)
-  Page 2 → /{category}/{slug}         (course detail, checks if coupon active)
-  Page 3 → /go/{slug}                 (final page with real Udemy coupon URL)
-
-SETUP (one-time):
-    pip install playwright
-    playwright install chromium
-
-RUN:
-    python couponami_scraper.py
-"""
-
 import asyncio
-import json
-import csv
+import os
 import re
-from datetime import datetime
+import requests
+from typing import List, Set
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 
-# ─── CONFIG ───────────────────────────────────────────────────────────────────
-BASE_URL        = "https://www.couponami.com"
-MAX_PAGES       = 5          # listing pages to scrape (total pages = 166; set None for all)
-HEADLESS        = True       # set False to watch the browser
-SLOW_MO         = 80         # ms between actions
-CONCURRENCY     = 3          # parallel detail-page fetches
-OUTPUT_JSON     = "free_courses.json"
-OUTPUT_CSV      = "free_courses.csv"
-# ──────────────────────────────────────────────────────────────────────────────
+# ==========================
+# Telegram & Storage Settings
+# ==========================
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHANNEL = os.environ["CHANNEL_ID"]
+POSTED_FILE = "posted_courses_couponami.txt"
 
-STEALTH_SCRIPT = """
-    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-    window.chrome = { runtime: {} };
-"""
+# Bot behaviour
+MAX_LISTING_PAGES = 5       # how many pages of /all to scrape (each has ~20 courses)
+CONCURRENCY = 3             # parallel /go page fetches
+HEADLESS = True
 
+def load_posted_links() -> Set[str]:
+    if not os.path.exists(POSTED_FILE):
+        return set()
+    with open(POSTED_FILE, "r", encoding="utf-8") as f:
+        return {line.strip() for line in f if line.strip()}
 
-async def make_context(browser):
-    ctx = await browser.new_context(
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        viewport={"width": 1366, "height": 768},
-        locale="en-US",
-    )
-    await ctx.add_init_script(STEALTH_SCRIPT)
-    return ctx
+def save_posted_link(link: str):
+    with open(POSTED_FILE, "a", encoding="utf-8") as f:
+        f.write(link + "\n")
 
+def clean_udemy_url(url: str) -> str:
+    """Keep only the couponCode parameter, discard tracking garbage."""
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    allowed = {}
+    if "couponCode" in params:
+        allowed["couponCode"] = params["couponCode"][0]
+    new_query = urlencode(allowed)
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        new_query,
+        parsed.fragment
+    ))
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# STEP 1 — Scrape the listing pages  (/all, /all/2, /all/3 …)
-# ═══════════════════════════════════════════════════════════════════════════════
-async def scrape_listing_page(page, page_num: int) -> list[dict]:
-    """Returns raw course stubs from one listing page."""
-    url = f"{BASE_URL}/all" if page_num == 1 else f"{BASE_URL}/all/{page_num}"
-
+# ==========================
+# Scraper logic (adapted from the working script)
+# ==========================
+async def scrape_listing_page(page, page_num: int) -> list:
+    """
+    Scrapes one listing page (/all or /all/2, etc.)
+    Returns list of course stubs with detail_url and go_url.
+    """
+    url = "https://couponami.com/all" if page_num == 1 else f"https://couponami.com/all/{page_num}"
     try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(1500)
     except PwTimeout:
-        print(f"  ⚠️  Timeout on listing page {page_num}")
+        print(f"  ⚠️ Timeout on listing page {page_num}")
         return []
 
-    # ── Parse all course anchor links on the page ─────────────────────────────
-    # Course links look like:  https://www.couponami.com/{category}/{slug}
-    # We exclude nav/footer/popular-sidebar links by requiring they have an
-    # accompanying price string "$X->$0" nearby in the same container.
-
-    # Grab all <a> tags that match the course URL pattern
     anchors = await page.query_selector_all("a[href]")
-
     courses = []
     seen_slugs = set()
 
     for anchor in anchors:
         href = await anchor.get_attribute("href") or ""
-
-        # Must be an internal path with exactly 2 segments: /category/slug
-        match = re.match(
-            r"https?://(?:www\.)?couponami\.com/([^/]+)/([^/?#]+)$", href
-        )
+        match = re.match(r"https?://(?:www\.)?couponami\.com/([^/]+)/([^/?#]+)$", href)
         if not match:
             continue
-
-        category_slug = match.group(1)
-        course_slug   = match.group(2)
-
-        # Skip nav/meta pages
-        SKIP_CATS = {"go", "category", "language", "all", "search",
-                     "contact", "about", "review", "policies",
-                     "frequently-asked-question", "feed"}
-        if category_slug in SKIP_CATS:
+        category, slug = match.group(1), match.group(2)
+        skip = {"go", "category", "language", "all", "search", "contact", "about"}
+        if category in skip:
             continue
-
-        # Deduplicate
-        if course_slug in seen_slugs:
+        if slug in seen_slugs:
             continue
-        seen_slugs.add(course_slug)
+        seen_slugs.add(slug)
 
         title = (await anchor.inner_text()).strip()
         if not title or len(title) < 5:
             continue
 
-        # Try to read price from parent/sibling container
+        # Try to extract price text from parent container (e.g., "$84->$0")
         price_text = ""
-        try:
-            # Walk up a few levels to find the price text "$X->$0"
-            container = await anchor.evaluate_handle(
-                "el => el.closest('div, li, section, article') || el.parentElement"
-            )
-            if container:
-                raw = await container.inner_text()
-                # Look for price pattern
-                pm = re.search(r"\$[\d,]+\s*->\s*\$[\d,]+", raw)
-                if pm:
-                    price_text = pm.group(0)
-        except Exception:
-            pass
-
-        # Build course stub
-        course_detail_url = href  # page 2
-        # page 3 URL: /go/{slug}
-        go_url = f"{BASE_URL}/go/{course_slug}"
+        container = await anchor.evaluate_handle("el => el.closest('div, li, section, article') || el.parentElement")
+        if container:
+            raw = await container.inner_text()
+            pm = re.search(r"\$[\d,]+\s*->\s*\$[\d,]+", raw)
+            if pm:
+                price_text = pm.group(0)
 
         courses.append({
-            "title":        title,
-            "category":     category_slug,
-            "slug":         course_slug,
-            "detail_url":   course_detail_url,
-            "go_url":       go_url,
-            "price_text":   price_text,
+            "title": title,
+            "category": category,
+            "slug": slug,
+            "detail_url": href,
+            "go_url": f"https://couponami.com/go/{slug}",
+            "price_text": price_text,
         })
-
     return courses
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Visit /go/{slug}  to get the real Udemy coupon URL
-#           Also checks whether coupon is still active (not expired)
-# ═══════════════════════════════════════════════════════════════════════════════
-async def fetch_udemy_link(context, course: dict) -> dict | None:
+async def fetch_udemy_from_go_page(context, course: dict):
     """
-    Visits /go/{slug} and extracts the Udemy URL with coupon code.
-    Returns None if coupon is expired.
+    Visits /go/{slug}, extracts the final Udemy URL and checks for expiration.
+    Returns the course dict with udemy_url and is_expired, or None if no link.
     """
     page = await context.new_page()
-    result = None
-
     try:
-        await page.goto(course["go_url"], wait_until="domcontentloaded", timeout=25_000)
+        await page.goto(course["go_url"], wait_until="domcontentloaded", timeout=25000)
         await page.wait_for_timeout(1200)
 
-        page_text = await page.inner_text("body")
+        body = await page.inner_text("body")
+        is_expired = "expired" in body.lower()
 
-        # Check for expired coupon
-        if "expired" in page_text.lower():
-            # Still try to get link — sometimes "expired" is shown but link works
-            pass
-
-        # Find the Udemy anchor link
         udemy_anchor = await page.query_selector("a[href*='udemy.com/course']")
+        if not udemy_anchor:
+            return None
 
-        if udemy_anchor:
-            udemy_url = await udemy_anchor.get_attribute("href") or ""
-            link_text = (await udemy_anchor.inner_text()).strip()
-
-            is_expired = "expired" in page_text.lower() and "expired" in page_text[:500].lower()
-
-            result = {
-                **course,
-                "udemy_url":   udemy_url,
-                "coupon_code": extract_coupon_code(udemy_url),
-                "is_expired":  is_expired,
-                "link_text":   link_text,
-            }
-        else:
-            # Coupon page has no Udemy link → fully expired/removed
-            pass
-
-    except PwTimeout:
-        print(f"  ⚠️  Timeout on /go/ page for: {course['slug'][:40]}")
+        udemy_url = await udemy_anchor.get_attribute("href") or ""
+        coupon_code = re.search(r"couponCode=([A-Z0-9]+)", udemy_url, re.IGNORECASE)
+        return {
+            **course,
+            "udemy_url": clean_udemy_url(udemy_url),
+            "coupon_code": coupon_code.group(1) if coupon_code else "",
+            "is_expired": is_expired,
+        }
     except Exception as e:
-        print(f"  ⚠️  Error on {course['slug'][:40]}: {e}")
+        print(f"  ⚠️ Error on {course['slug']}: {e}")
+        return None
     finally:
         await page.close()
 
-    return result
+# ==========================
+# Price validation on Udemy (double-check)
+# ==========================
+async def is_course_still_free(validation_page, udemy_url: str) -> bool:
+    try:
+        await validation_page.goto(udemy_url, wait_until="domcontentloaded", timeout=30000)
+        price_el = await validation_page.query_selector("[data-purpose='lead-price']")
+        if price_el:
+            price_text = (await price_el.inner_text()).strip().lower()
+            return price_text in ("free", "$0", "€0", "₹0", "0", "0.00")
+        body = await validation_page.inner_text("body")
+        return "free" in body.lower()
+    except Exception:
+        return False
 
+# ==========================
+# Send to Telegram
+# ==========================
+async def send_telegram(udemy_url: str, title: str) -> bool:
+    message = f"🎓 FREE UDEMY COURSE\n\n📘 {title}\n\n🔗 {udemy_url}\n\n⚠️ Coupon may expire soon – enroll quickly!\n\n👇 More: https://t.me/CouponXpert"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    try:
+        r = await asyncio.to_thread(requests.post, url, data={"chat_id": CHANNEL, "text": message}, timeout=10)
+        return r.status_code == 200
+    except Exception as e:
+        print(f"❌ Telegram send failed: {e}")
+        return False
 
-def extract_coupon_code(udemy_url: str) -> str:
-    m = re.search(r"couponCode=([A-Z0-9]+)", udemy_url, re.IGNORECASE)
-    return m.group(1) if m else ""
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN ORCHESTRATOR
-# ═══════════════════════════════════════════════════════════════════════════════
+# ==========================
+# Main
+# ==========================
 async def main():
-    all_stubs = []
+    print("🚀 CouponAmi Bot (full scraper) Started")
+    posted = load_posted_links()
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=HEADLESS,
-            slow_mo=SLOW_MO,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
         )
-        listing_ctx = await make_context(browser)
-        listing_page = await listing_ctx.new_page()
+        # Context for listing pages
+        list_ctx = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            viewport={"width": 1366, "height": 768}
+        )
+        listing_page = await list_ctx.new_page()
 
-        # ── STEP 1: Collect all course stubs from listing pages ───────────────
-        print(f"\n🔍  STEP 1 — Scraping listing pages ({BASE_URL}/all)")
-        print("─" * 55)
-
-        page_num = 1
-        while True:
-            if MAX_PAGES and page_num > MAX_PAGES:
-                print(f"  ✅ Reached MAX_PAGES={MAX_PAGES} limit.")
-                break
-
-            print(f"  📄 Listing page {page_num} ...", end=" ", flush=True)
+        # Step 1: collect course stubs from listing pages
+        all_stubs = []
+        for page_num in range(1, MAX_LISTING_PAGES + 1):
+            print(f"📄 Listing page {page_num} ...", end=" ", flush=True)
             stubs = await scrape_listing_page(listing_page, page_num)
-
             if not stubs:
-                print("no courses found — stopping.")
+                print("no courses – stopping")
                 break
-
             all_stubs.extend(stubs)
-            print(f"{len(stubs)} courses found  (total so far: {len(all_stubs)})")
-            page_num += 1
+            print(f"{len(stubs)} courses (total {len(all_stubs)})")
+            await asyncio.sleep(1)
 
         await listing_page.close()
+        print(f"\n✅ Collected {len(all_stubs)} course stubs")
 
-        # ── STEP 2: Visit /go/{slug} for each course to get Udemy links ───────
-        print(f"\n🔗  STEP 2 — Fetching Udemy coupon links ({len(all_stubs)} courses)")
-        print("─" * 55)
+        # Step 2: fetch Udemy URLs from /go pages (with concurrency)
+        detail_ctx = await browser.new_context()
+        sem = asyncio.Semaphore(CONCURRENCY)
+        async def limited_fetch(course):
+            async with sem:
+                return await fetch_udemy_from_go_page(detail_ctx, course)
 
-        detail_ctx = await make_context(browser)
-        final_courses = []
-        semaphore = asyncio.Semaphore(CONCURRENCY)
-
-        async def fetch_with_limit(course):
-            async with semaphore:
-                return await fetch_udemy_link(detail_ctx, course)
-
-        tasks = [fetch_with_limit(s) for s in all_stubs]
+        tasks = [limited_fetch(c) for c in all_stubs]
         results = await asyncio.gather(*tasks)
 
-        for r in results:
-            if r and not r.get("is_expired") and r.get("udemy_url"):
-                final_courses.append(r)
+        valid_courses = [r for r in results if r and not r.get("is_expired") and r.get("udemy_url")]
+        print(f"🎯 Active (non-expired) courses: {len(valid_courses)}")
 
-        print(f"\n  ✅ Active (non-expired) free courses: {len(final_courses)}")
+        # Step 3: validate price on Udemy and post
+        validation_page = await detail_ctx.new_page()
+        new_posts = 0
+        MAX_NEW = 3
+
+        for course in valid_courses:
+            if new_posts >= MAX_NEW:
+                break
+            if course["udemy_url"] in posted:
+                print(f"⏩ Already posted: {course['udemy_url']}")
+                continue
+
+            if await is_course_still_free(validation_page, course["udemy_url"]):
+                title = course["title"]
+                if await send_telegram(course["udemy_url"], title):
+                    save_posted_link(course["udemy_url"])
+                    posted.add(course["udemy_url"])
+                    new_posts += 1
+                    print(f"✅ Posted #{new_posts}: {title}")
+                else:
+                    print(f"❌ Telegram send failed for {title}")
+            else:
+                print(f"⏭️ Not free (Udemy says paid): {course['udemy_url']}")
 
         await browser.close()
 
-    # ── STEP 3: Save ──────────────────────────────────────────────────────────
-    save_results(final_courses)
-    print_summary(final_courses)
-    return final_courses
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# OUTPUT HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
-def save_results(courses: list):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
-        json.dump(
-            {"scraped_at": timestamp, "total": len(courses), "courses": courses},
-            f, indent=2, ensure_ascii=False,
-        )
-    print(f"\n💾 JSON  →  {OUTPUT_JSON}")
-
-    if courses:
-        with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=courses[0].keys())
-            writer.writeheader()
-            writer.writerows(courses)
-        print(f"💾 CSV   →  {OUTPUT_CSV}")
-
-
-def print_summary(courses: list):
-    print("\n" + "═" * 65)
-    print(f"  🎓  TOTAL FREE COURSES WITH ACTIVE COUPONS: {len(courses)}")
-    print("═" * 65)
-    for i, c in enumerate(courses[:15], 1):
-        code = f"  🎟  Coupon: {c['coupon_code']}" if c.get("coupon_code") else ""
-        print(f"\n  [{i:02d}] {c['title']}")
-        print(f"       📂 {c['category']}   💰 {c.get('price_text','')}")
-        print(f"       🔗 {c['udemy_url'][:80]}...")
-        if code:
-            print(f"       {code}")
-    if len(courses) > 15:
-        print(f"\n  … and {len(courses) - 15} more in {OUTPUT_JSON}")
-    print()
-
+    print(f"\n🎉 Done. Posted {new_posts} new courses.")
 
 if __name__ == "__main__":
     asyncio.run(main())
