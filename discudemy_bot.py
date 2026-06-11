@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 # Telegram & Storage Settings
 # ==========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = os.environ["CHANNEL_ID"]
+CHANNEL = "@channelboottest"
 POSTED_FILE = "posted_courses_couponami.txt"
 
 # Bot behaviour
