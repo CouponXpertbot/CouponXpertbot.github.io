@@ -1,10 +1,14 @@
 """
-couponami.com Free Course Scraper
-==================================
-Scrapes 100% FREE courses from https://couponami.com using Playwright.
+couponami.com — Playwright Scraper for 100% Free Udemy Courses
+==============================================================
+Understands the EXACT 3-page flow of couponami.com:
 
-SETUP (run once):
-    pip install playwright asyncio
+  Page 1 → /all, /all/2, /all/3 ...  (listings, price shown as $X->$0)
+  Page 2 → /{category}/{slug}         (course detail, checks if coupon active)
+  Page 3 → /go/{slug}                 (final page with real Udemy coupon URL)
+
+SETUP (one-time):
+    pip install playwright
     playwright install chromium
 
 RUN:
@@ -14,243 +18,288 @@ RUN:
 import asyncio
 import json
 import csv
+import re
 from datetime import datetime
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from playwright.async_api import async_playwright, TimeoutError as PwTimeout
+
+# ─── CONFIG ───────────────────────────────────────────────────────────────────
+BASE_URL        = "https://www.couponami.com"
+MAX_PAGES       = 5          # listing pages to scrape (total pages = 166; set None for all)
+HEADLESS        = True       # set False to watch the browser
+SLOW_MO         = 80         # ms between actions
+CONCURRENCY     = 3          # parallel detail-page fetches
+OUTPUT_JSON     = "free_courses.json"
+OUTPUT_CSV      = "free_courses.csv"
+# ──────────────────────────────────────────────────────────────────────────────
+
+STEALTH_SCRIPT = """
+    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+    window.chrome = { runtime: {} };
+"""
 
 
-# ─── CONFIG ──────────────────────────────────────────────────────────────────
-BASE_URL       = "https://couponami.com"
-MAX_PAGES      = 10          # how many pages to scrape (set None for all)
-HEADLESS       = True        # False = watch the browser live
-SLOW_MO        = 100         # ms delay between actions (helps bypass bot checks)
-OUTPUT_JSON    = "free_courses.json"
-OUTPUT_CSV     = "free_courses.csv"
-# ─────────────────────────────────────────────────────────────────────────────
+async def make_context(browser):
+    ctx = await browser.new_context(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        viewport={"width": 1366, "height": 768},
+        locale="en-US",
+    )
+    await ctx.add_init_script(STEALTH_SCRIPT)
+    return ctx
 
 
-async def scrape_couponami():
-    all_courses = []
+# ═══════════════════════════════════════════════════════════════════════════════
+# STEP 1 — Scrape the listing pages  (/all, /all/2, /all/3 …)
+# ═══════════════════════════════════════════════════════════════════════════════
+async def scrape_listing_page(page, page_num: int) -> list[dict]:
+    """Returns raw course stubs from one listing page."""
+    url = f"{BASE_URL}/all" if page_num == 1 else f"{BASE_URL}/all/{page_num}"
+
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        await page.wait_for_timeout(1500)
+    except PwTimeout:
+        print(f"  ⚠️  Timeout on listing page {page_num}")
+        return []
+
+    # ── Parse all course anchor links on the page ─────────────────────────────
+    # Course links look like:  https://www.couponami.com/{category}/{slug}
+    # We exclude nav/footer/popular-sidebar links by requiring they have an
+    # accompanying price string "$X->$0" nearby in the same container.
+
+    # Grab all <a> tags that match the course URL pattern
+    anchors = await page.query_selector_all("a[href]")
+
+    courses = []
+    seen_slugs = set()
+
+    for anchor in anchors:
+        href = await anchor.get_attribute("href") or ""
+
+        # Must be an internal path with exactly 2 segments: /category/slug
+        match = re.match(
+            r"https?://(?:www\.)?couponami\.com/([^/]+)/([^/?#]+)$", href
+        )
+        if not match:
+            continue
+
+        category_slug = match.group(1)
+        course_slug   = match.group(2)
+
+        # Skip nav/meta pages
+        SKIP_CATS = {"go", "category", "language", "all", "search",
+                     "contact", "about", "review", "policies",
+                     "frequently-asked-question", "feed"}
+        if category_slug in SKIP_CATS:
+            continue
+
+        # Deduplicate
+        if course_slug in seen_slugs:
+            continue
+        seen_slugs.add(course_slug)
+
+        title = (await anchor.inner_text()).strip()
+        if not title or len(title) < 5:
+            continue
+
+        # Try to read price from parent/sibling container
+        price_text = ""
+        try:
+            # Walk up a few levels to find the price text "$X->$0"
+            container = await anchor.evaluate_handle(
+                "el => el.closest('div, li, section, article') || el.parentElement"
+            )
+            if container:
+                raw = await container.inner_text()
+                # Look for price pattern
+                pm = re.search(r"\$[\d,]+\s*->\s*\$[\d,]+", raw)
+                if pm:
+                    price_text = pm.group(0)
+        except Exception:
+            pass
+
+        # Build course stub
+        course_detail_url = href  # page 2
+        # page 3 URL: /go/{slug}
+        go_url = f"{BASE_URL}/go/{course_slug}"
+
+        courses.append({
+            "title":        title,
+            "category":     category_slug,
+            "slug":         course_slug,
+            "detail_url":   course_detail_url,
+            "go_url":       go_url,
+            "price_text":   price_text,
+        })
+
+    return courses
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STEP 2 — Visit /go/{slug}  to get the real Udemy coupon URL
+#           Also checks whether coupon is still active (not expired)
+# ═══════════════════════════════════════════════════════════════════════════════
+async def fetch_udemy_link(context, course: dict) -> dict | None:
+    """
+    Visits /go/{slug} and extracts the Udemy URL with coupon code.
+    Returns None if coupon is expired.
+    """
+    page = await context.new_page()
+    result = None
+
+    try:
+        await page.goto(course["go_url"], wait_until="domcontentloaded", timeout=25_000)
+        await page.wait_for_timeout(1200)
+
+        page_text = await page.inner_text("body")
+
+        # Check for expired coupon
+        if "expired" in page_text.lower():
+            # Still try to get link — sometimes "expired" is shown but link works
+            pass
+
+        # Find the Udemy anchor link
+        udemy_anchor = await page.query_selector("a[href*='udemy.com/course']")
+
+        if udemy_anchor:
+            udemy_url = await udemy_anchor.get_attribute("href") or ""
+            link_text = (await udemy_anchor.inner_text()).strip()
+
+            is_expired = "expired" in page_text.lower() and "expired" in page_text[:500].lower()
+
+            result = {
+                **course,
+                "udemy_url":   udemy_url,
+                "coupon_code": extract_coupon_code(udemy_url),
+                "is_expired":  is_expired,
+                "link_text":   link_text,
+            }
+        else:
+            # Coupon page has no Udemy link → fully expired/removed
+            pass
+
+    except PwTimeout:
+        print(f"  ⚠️  Timeout on /go/ page for: {course['slug'][:40]}")
+    except Exception as e:
+        print(f"  ⚠️  Error on {course['slug'][:40]}: {e}")
+    finally:
+        await page.close()
+
+    return result
+
+
+def extract_coupon_code(udemy_url: str) -> str:
+    m = re.search(r"couponCode=([A-Z0-9]+)", udemy_url, re.IGNORECASE)
+    return m.group(1) if m else ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN ORCHESTRATOR
+# ═══════════════════════════════════════════════════════════════════════════════
+async def main():
+    all_stubs = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=HEADLESS,
             slow_mo=SLOW_MO,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-            ],
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
         )
+        listing_ctx = await make_context(browser)
+        listing_page = await listing_ctx.new_page()
 
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1366, "height": 768},
-            locale="en-US",
-        )
+        # ── STEP 1: Collect all course stubs from listing pages ───────────────
+        print(f"\n🔍  STEP 1 — Scraping listing pages ({BASE_URL}/all)")
+        print("─" * 55)
 
-        # Stealth: remove 'webdriver' flag
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        """)
-
-        page = await context.new_page()
         page_num = 1
-
-        print(f"🚀 Starting scraper on {BASE_URL}\n")
-
         while True:
             if MAX_PAGES and page_num > MAX_PAGES:
-                print(f"✅ Reached max page limit ({MAX_PAGES}). Stopping.")
+                print(f"  ✅ Reached MAX_PAGES={MAX_PAGES} limit.")
                 break
 
-            url = BASE_URL if page_num == 1 else f"{BASE_URL}/page/{page_num}/"
-            print(f"📄 Scraping page {page_num}: {url}")
+            print(f"  📄 Listing page {page_num} ...", end=" ", flush=True)
+            stubs = await scrape_listing_page(listing_page, page_num)
 
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-                await page.wait_for_timeout(2000)   # let JS settle
-            except PlaywrightTimeout:
-                print(f"  ⚠️  Timeout on page {page_num}. Stopping.")
+            if not stubs:
+                print("no courses found — stopping.")
                 break
 
-            # ── Locate course cards ──────────────────────────────────────────
-            # Couponami uses article cards; adjust selector if the site changes
-            cards = await page.query_selector_all("article.post, .course-card, .post-item, .entry")
-
-            if not cards:
-                # Fallback: try generic article selector
-                cards = await page.query_selector_all("article")
-
-            if not cards:
-                print(f"  ℹ️  No course cards found on page {page_num}. End of pages.")
-                break
-
-            page_courses = []
-
-            for card in cards:
-                try:
-                    course = await extract_course(card, page)
-                    if course:
-                        # ── FILTER: only 100% free ───────────────────────────
-                        if is_free(course):
-                            page_courses.append(course)
-                except Exception as e:
-                    print(f"  ⚠️  Error parsing a card: {e}")
-                    continue
-
-            print(f"  ✅ Found {len(page_courses)} free course(s) on page {page_num}")
-            all_courses.extend(page_courses)
-
-            # ── Check for "Next" button ──────────────────────────────────────
-            next_btn = await page.query_selector(
-                "a.next, a[rel='next'], .pagination .next, "
-                "nav.navigation a:has-text('Next'), "
-                ".nav-links a.next"
-            )
-            if not next_btn:
-                print(f"\n🏁 No more pages after page {page_num}.")
-                break
-
+            all_stubs.extend(stubs)
+            print(f"{len(stubs)} courses found  (total so far: {len(all_stubs)})")
             page_num += 1
+
+        await listing_page.close()
+
+        # ── STEP 2: Visit /go/{slug} for each course to get Udemy links ───────
+        print(f"\n🔗  STEP 2 — Fetching Udemy coupon links ({len(all_stubs)} courses)")
+        print("─" * 55)
+
+        detail_ctx = await make_context(browser)
+        final_courses = []
+        semaphore = asyncio.Semaphore(CONCURRENCY)
+
+        async def fetch_with_limit(course):
+            async with semaphore:
+                return await fetch_udemy_link(detail_ctx, course)
+
+        tasks = [fetch_with_limit(s) for s in all_stubs]
+        results = await asyncio.gather(*tasks)
+
+        for r in results:
+            if r and not r.get("is_expired") and r.get("udemy_url"):
+                final_courses.append(r)
+
+        print(f"\n  ✅ Active (non-expired) free courses: {len(final_courses)}")
 
         await browser.close()
 
-    return all_courses
+    # ── STEP 3: Save ──────────────────────────────────────────────────────────
+    save_results(final_courses)
+    print_summary(final_courses)
+    return final_courses
 
 
-async def extract_course(card, page) -> dict | None:
-    """Extract course data from a single card element."""
-
-    # Title
-    title_el = await card.query_selector("h2, h3, .entry-title, .post-title")
-    title = (await title_el.inner_text()).strip() if title_el else "N/A"
-
-    # Link
-    link_el = await card.query_selector("a[href]")
-    link = await link_el.get_attribute("href") if link_el else "N/A"
-    if link and link.startswith("/"):
-        link = BASE_URL + link
-
-    # Thumbnail
-    img_el = await card.query_selector("img")
-    image = await img_el.get_attribute("src") if img_el else "N/A"
-
-    # Category / tags
-    cat_el = await card.query_selector(".cat-links a, .category a, .tag a")
-    category = (await cat_el.inner_text()).strip() if cat_el else "N/A"
-
-    # Price / coupon text
-    price_el = await card.query_selector(
-        ".price, .coupon-price, .free-badge, "
-        "[class*='free'], [class*='price']"
-    )
-    price_text = (await price_el.inner_text()).strip() if price_el else ""
-
-    # Date
-    date_el = await card.query_selector("time, .entry-date, .post-date")
-    date = ""
-    if date_el:
-        date = await date_el.get_attribute("datetime") or (await date_el.inner_text()).strip()
-
-    # Description excerpt
-    desc_el = await card.query_selector(".entry-summary, .excerpt, p")
-    description = (await desc_el.inner_text()).strip() if desc_el else ""
-
-    if title == "N/A" and link == "N/A":
-        return None
-
-    return {
-        "title":       title,
-        "link":        link,
-        "category":    category,
-        "price_text":  price_text,
-        "image":       image,
-        "date":        date,
-        "description": description[:300],   # trim long descriptions
-    }
-
-
-def is_free(course: dict) -> bool:
-    """Return True only if the course appears to be 100% free."""
-    text = (
-        course.get("title", "") + " " +
-        course.get("price_text", "") + " " +
-        course.get("description", "")
-    ).lower()
-
-    free_signals   = ["free", "100% off", "100% free", "$0", "£0", "coupon"]
-    paid_signals   = ["$", "£", "€", "paid", "discount"]
-
-    has_free = any(sig in text for sig in free_signals)
-    has_paid = any(sig in text for sig in paid_signals)
-
-    # Free if it has a free signal AND no conflicting paid price
-    return has_free and not has_paid
-
-
-async def visit_course_page(link: str, context) -> dict:
-    """
-    (Optional) Visit the individual course page to grab the Udemy coupon URL.
-    Call this if you want the direct Udemy link with coupon applied.
-    """
-    page = await context.new_page()
-    udemy_url = ""
-    try:
-        await page.goto(link, wait_until="domcontentloaded", timeout=20_000)
-        await page.wait_for_timeout(1500)
-
-        # Look for 'Get Coupon' / 'Enroll Now' button that links to Udemy
-        btn = await page.query_selector(
-            "a[href*='udemy.com'], "
-            "a:has-text('Get Coupon'), "
-            "a:has-text('Enroll'), "
-            "a:has-text('Get Course')"
-        )
-        if btn:
-            udemy_url = await btn.get_attribute("href") or ""
-    except Exception:
-        pass
-    finally:
-        await page.close()
-    return {"udemy_url": udemy_url}
-
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTPUT HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
 def save_results(courses: list):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # ── JSON ──────────────────────────────────────────────────────────────────
     with open(OUTPUT_JSON, "w", encoding="utf-8") as f:
         json.dump(
             {"scraped_at": timestamp, "total": len(courses), "courses": courses},
-            f, indent=2, ensure_ascii=False
+            f, indent=2, ensure_ascii=False,
         )
-    print(f"\n💾 JSON saved → {OUTPUT_JSON}")
+    print(f"\n💾 JSON  →  {OUTPUT_JSON}")
 
-    # ── CSV ───────────────────────────────────────────────────────────────────
     if courses:
         with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=courses[0].keys())
             writer.writeheader()
             writer.writerows(courses)
-        print(f"💾 CSV  saved → {OUTPUT_CSV}")
+        print(f"💾 CSV   →  {OUTPUT_CSV}")
 
 
 def print_summary(courses: list):
-    print("\n" + "═" * 60)
-    print(f"  🎓 TOTAL FREE COURSES FOUND: {len(courses)}")
-    print("═" * 60)
-    for i, c in enumerate(courses[:10], 1):   # preview first 10
-        print(f"\n  [{i}] {c['title']}")
-        print(f"      🔗 {c['link']}")
-        print(f"      📂 {c['category']}  |  📅 {c['date']}")
-    if len(courses) > 10:
-        print(f"\n  … and {len(courses) - 10} more (see {OUTPUT_JSON})")
+    print("\n" + "═" * 65)
+    print(f"  🎓  TOTAL FREE COURSES WITH ACTIVE COUPONS: {len(courses)}")
+    print("═" * 65)
+    for i, c in enumerate(courses[:15], 1):
+        code = f"  🎟  Coupon: {c['coupon_code']}" if c.get("coupon_code") else ""
+        print(f"\n  [{i:02d}] {c['title']}")
+        print(f"       📂 {c['category']}   💰 {c.get('price_text','')}")
+        print(f"       🔗 {c['udemy_url'][:80]}...")
+        if code:
+            print(f"       {code}")
+    if len(courses) > 15:
+        print(f"\n  … and {len(courses) - 15} more in {OUTPUT_JSON}")
+    print()
 
 
 if __name__ == "__main__":
-    courses = asyncio.run(scrape_couponami())
-    save_results(courses)
-    print_summary(courses)
+    asyncio.run(main())
