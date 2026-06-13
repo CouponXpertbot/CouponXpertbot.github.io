@@ -137,7 +137,7 @@ async def fetch_udemy_from_go_page(context, course: dict):
 # ==========================
 async def is_course_still_free(validation_page, udemy_url: str) -> bool:
     try:
-        await validation_page.goto(udemy_url, wait_until="domcontentloaded", timeout=30000)
+        await validation_page.goto(udemy_url, wait_until="domcontentloaded", timeout=45000)
         price_el = await validation_page.query_selector("[data-purpose='lead-price']")
         if price_el:
             price_text = (await price_el.inner_text()).strip().lower()
