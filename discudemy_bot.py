@@ -188,8 +188,7 @@ async def is_course_still_free(validation_page, udemy_url: str) -> bool:
     except Exception as e:
         print(f"   ⚠️ Udemy validation error: {e}")
         return False
-           return True
-            return False
+
         
         # 5. Evaluate the price text
         if price_text in ("free", "$0", "€0", "₹0", "0", "0.00"):
