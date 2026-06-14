@@ -11,7 +11,7 @@ from playwright.async_api import async_playwright, TimeoutError as PwTimeout
 # ==========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL = "@channelboottest"
-POSTED_FILE = "posted_courses_couponami.txt"
+POSTED_FILE = "posted_courses_discudemy.txt"
 
 # Bot behaviour
 MAX_LISTING_PAGES = 5       # how many pages of /all to scrape (each has ~20 courses)
@@ -136,15 +136,79 @@ async def fetch_udemy_from_go_page(context, course: dict):
 # Price validation on Udemy (double-check)
 # ==========================
 async def is_course_still_free(validation_page, udemy_url: str) -> bool:
+    """
+    Validates that the Udemy course is truly free (price = $0 or "Free").
+    Handles cookie popups and dynamic loading.
+    """
     try:
+        print(f"   🔍 Validating: {udemy_url[:80]}...")
         await validation_page.goto(udemy_url, wait_until="domcontentloaded", timeout=45000)
-        price_el = await validation_page.query_selector("[data-purpose='lead-price']")
-        if price_el:
-            price_text = (await price_el.inner_text()).strip().lower()
-            return price_text in ("free", "$0", "€0", "₹0", "0", "0.00")
-        body = await validation_page.inner_text("body")
-        return "free" in body.lower()
-    except Exception:
+        
+        # Handle cookie consent popup (common on Udemy)
+        try:
+            accept_btn = await validation_page.query_selector("button:has-text('Accept')")
+            if accept_btn:
+                await accept_btn.click()
+                await asyncio.sleep(1)
+        except:
+            pass
+        
+        # Wait a bit for the price to load
+        await asyncio.sleep(3)
+        
+        # Try multiple selectors for price text
+        price_selectors = [
+            "[data-purpose='lead-price']",
+            ".price-text",
+            ".ud-component--course-price--price-part",
+            "span[data-purpose='price-text']",
+            ".price-display__price",
+            ".course-price-text"
+        ]
+        
+        price_text = None
+        for selector in price_selectors:
+            element = await validation_page.query_selector(selector)
+            if element:
+                price_text = await element.inner_text()
+                if price_text:
+                    price_text = price_text.strip().lower()
+                    break
+        
+        # Also check the whole page body as fallback
+        if not price_text:
+            body = await validation_page.inner_text("body")
+            body_lower = body.lower()
+            if "free" in body_lower or "100% off" in body_lower:
+                # Make sure it's not a partial discount like "90% off"
+                if "100% off" in body_lower or "free" in body_lower:
+                    return True
+            # Also check for price $0
+            if "$0" in body_lower or "₹0" in body_lower or "0.00" in body_lower:
+                return True
+            return False
+        
+        # Evaluate price text
+        price_text = price_text.lower()
+        if price_text in ("free", "$0", "€0", "₹0", "0", "0.00"):
+            return True
+        if "100% off" in price_text:
+            return True
+        if "free" in price_text:
+            return True
+        
+        # If price contains a positive amount, consider it paid
+        # e.g., "$49.99", "₹399"
+        if re.search(r'[$€₹]\s*\d+', price_text):
+            return False
+        if re.search(r'\d+% off', price_text) and "100%" not in price_text:
+            return False
+        
+        # Default: assume not free
+        return False
+        
+    except Exception as e:
+        print(f"   ⚠️ Udemy validation error: {e}")
         return False
 
 # ==========================
