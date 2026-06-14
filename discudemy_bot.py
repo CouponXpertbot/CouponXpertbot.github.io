@@ -140,70 +140,53 @@ async def is_course_still_free(validation_page, udemy_url: str) -> bool:
         print(f"   🔍 Validating: {udemy_url[:80]}...")
         await validation_page.goto(udemy_url, wait_until="domcontentloaded", timeout=45000)
         
-        # Handle cookie consent (important)
+        # Handle cookie consent
         try:
             accept = await validation_page.wait_for_selector("button:has-text('Accept all'), button:has-text('Accept')", timeout=5000)
             if accept:
                 await accept.click()
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
         except:
             pass
         
-        # Wait for the price to be loaded (the coupon is in URL, so price should change)
-        # We'll poll for up to 30 seconds to see if the price becomes free
-        for attempt in range(15):  # 15 * 2 seconds = 30 seconds
+        # Wait for the coupon to be applied (Udemy may show "Applied!" banner)
+        try:
+            await validation_page.wait_for_selector("text=Applied!", timeout=10000)
+            print("   ✅ Coupon applied banner detected")
+        except:
+            pass  # not always present
+        
+        # Now poll for up to 20 seconds to detect free price
+        for attempt in range(10):
             await asyncio.sleep(2)
             
-            # Check the whole page text for free indicators (fastest)
+            # Get the entire page text (most reliable)
             body = await validation_page.inner_text("body")
             body_lower = body.lower()
             
-            # Look for "100% off" or "free" or "$0" or "₹0"
-            if "100% off" in body_lower:
-                print("   ✅ Found '100% off' in page text")
+            # Check for the exact free indicators you saw manually
+            if "current pricefree" in body_lower.replace(" ", ""):
+                print("   ✅ Found 'Current price Free'")
                 return True
-            if "free" in body_lower and "original price" not in body_lower:
-                # But ensure it's not a false positive like "free trial"
-                if "enroll now" in body_lower or "add to cart" in body_lower:
-                    print("   ✅ Found 'free' near enrollment button")
-                    return True
+            if "100% off" in body_lower:
+                print("   ✅ Found '100% off'")
+                return True
+            if "free" in body_lower and "enroll now" in body_lower:
+                print("   ✅ Found 'free' with enrollment button")
+                return True
             if "$0" in body_lower or "₹0" in body_lower:
-                print("   ✅ Found price $0/₹0")
+                print("   ✅ Found $0/₹0")
                 return True
             
-            # Also check specific price elements (more precise)
-            price_element = await validation_page.query_selector("[data-purpose='lead-price'], .price-text--price-part, .price-text__current")
-            if price_element:
-                price_text = (await price_element.inner_text()).strip().lower()
+            # Also check specific price elements
+            price_el = await validation_page.query_selector("[data-purpose='lead-price'], .price-text--price-part, .price-display__price")
+            if price_el:
+                price_text = (await price_el.inner_text()).strip().lower()
                 if price_text in ("free", "$0", "€0", "₹0", "0", "0.00"):
-                    print(f"   ✅ Price element shows '{price_text}'")
-                    return True
-                if "100% off" in price_text:
+                    print(f"   ✅ Price element: '{price_text}'")
                     return True
         
-        # If we didn't find free after polling, assume paid
-        print("   ⏭️ No free indicator found after waiting")
-        return False
-        
-    except Exception as e:
-        print(f"   ⚠️ Udemy validation error: {e}")
-        return False
-
-        
-        # 5. Evaluate the price text
-        if price_text in ("free", "$0", "€0", "₹0", "0", "0.00"):
-            return True
-        if "100% off" in price_text:
-            return True
-        if "free" in price_text:
-            return True
-        
-        # 6. If the price contains a positive amount, consider it paid
-        if re.search(r'[$€₹]\s*\d+', price_text):
-            return False
-        if re.search(r'\d+% off', price_text) and "100%" not in price_text:
-            return False
-        
+        print("   ⏭️ No free indicator after waiting")
         return False
         
     except Exception as e:
