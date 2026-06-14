@@ -140,45 +140,54 @@ async def is_course_still_free(validation_page, udemy_url: str) -> bool:
         print(f"   🔍 Validating: {udemy_url[:80]}...")
         await validation_page.goto(udemy_url, wait_until="domcontentloaded", timeout=45000)
         
-        # 1. Handle Cookie Consent (more comprehensive)
+        # Handle cookie consent (important)
         try:
-            accept_btn = await validation_page.query_selector("button:has-text('Accept all'), button:has-text('Accept'), button:has-text('OK')")
-            if accept_btn:
-                await accept_btn.click()
+            accept = await validation_page.wait_for_selector("button:has-text('Accept all'), button:has-text('Accept')", timeout=5000)
+            if accept:
+                await accept.click()
                 await asyncio.sleep(2)
         except:
             pass
         
-        # 2. Wait for the price element to appear (longer timeout)
-        try:
-            await validation_page.wait_for_selector(".price-text--price-part, [data-purpose='lead-price'], .price-text__current", timeout=30000)
-        except Exception as e:
-            print(f"   ⚠️ Price element not found after waiting: {e}")
-            return False
-
-        # 3. Try multiple selectors for the price
-        price_selectors = [
-            "[data-purpose='lead-price']",
-            ".price-text--price-part",
-            ".price-text__current",
-            ".price-text",
-            ".ud-component--course-price--price-part"
-        ]
-        
-        price_text = None
-        for selector in price_selectors:
-            element = await validation_page.query_selector(selector)
-            if element:
-                price_text = await element.inner_text()
-                if price_text:
-                    price_text = price_text.strip().lower()
-                    break
-        
-        # 4. If no price text found, check the whole body (final fallback)
-        if not price_text:
+        # Wait for the price to be loaded (the coupon is in URL, so price should change)
+        # We'll poll for up to 30 seconds to see if the price becomes free
+        for attempt in range(15):  # 15 * 2 seconds = 30 seconds
+            await asyncio.sleep(2)
+            
+            # Check the whole page text for free indicators (fastest)
             body = await validation_page.inner_text("body")
             body_lower = body.lower()
-            if "free" in body_lower or "100% off" in body_lower or "$0" in body_lower or "₹0" in body_lower:
+            
+            # Look for "100% off" or "free" or "$0" or "₹0"
+            if "100% off" in body_lower:
+                print("   ✅ Found '100% off' in page text")
+                return True
+            if "free" in body_lower and "original price" not in body_lower:
+                # But ensure it's not a false positive like "free trial"
+                if "enroll now" in body_lower or "add to cart" in body_lower:
+                    print("   ✅ Found 'free' near enrollment button")
+                    return True
+            if "$0" in body_lower or "₹0" in body_lower:
+                print("   ✅ Found price $0/₹0")
+                return True
+            
+            # Also check specific price elements (more precise)
+            price_element = await validation_page.query_selector("[data-purpose='lead-price'], .price-text--price-part, .price-text__current")
+            if price_element:
+                price_text = (await price_element.inner_text()).strip().lower()
+                if price_text in ("free", "$0", "€0", "₹0", "0", "0.00"):
+                    print(f"   ✅ Price element shows '{price_text}'")
+                    return True
+                if "100% off" in price_text:
+                    return True
+        
+        # If we didn't find free after polling, assume paid
+        print("   ⏭️ No free indicator found after waiting")
+        return False
+        
+    except Exception as e:
+        print(f"   ⚠️ Udemy validation error: {e}")
+        return False
                 return True
             return False
         
