@@ -89,6 +89,11 @@ def extract_udemy_link(coursefolder_url: str) -> Optional[str]:
             if "udemy.com" in href:
                 return href
 
+    for a in soup.find_all("a", href=True):
+    href = a["href"]
+    if "udemy" in href.lower():
+        print("FOUND UDEMY:", href)
+
     # 2. Fallback: any Udemy course link
     for a in soup.find_all("a", href=True):
         href = a["href"]
