@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import re
 import os
 from typing import List, Optional
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, urljoin
 from playwright.sync_api import sync_playwright
 
 # ==========================
@@ -72,48 +72,51 @@ def get_html(url: str) -> Optional[str]:
         return None
 
 # ==========================
-# Extract Udemy link from coursefolder.net page
+# NEW: Extract Udemy link using Playwright (handles dynamic content)
 # ==========================
-def extract_udemy_link(coursefolder_url: str) -> Optional[str]:
-    html = get_html(coursefolder_url)
-    if not html:
-        return None
+def extract_udemy_link_playwright(page, cf_url: str) -> Optional[str]:
+    """
+    Navigate to coursefolder.net and extract the Udemy URL from the 'Get Free Coupon' button.
+    Uses Playwright to handle dynamic content and attribute extraction.
+    """
+    print(f"🌐 Loading {cf_url}")
+    page.goto(cf_url, wait_until="networkidle")
+    page.wait_for_timeout(1000)  # let any final JS settle
 
-    soup = BeautifulSoup(html, "html.parser")
+    # 1. Find the button/link with the text "Get Free Coupon"
+    button = page.query_selector("a:has-text('Get Free Coupon'), button:has-text('Get Free Coupon')")
+    if not button:
+        # Fallback: any element with text containing "free coupon"
+        button = page.query_selector("*:has-text('Get Free Coupon')")
 
-    # 1. Look for "Get Free Coupon" button/link
-    for a in soup.find_all("a", href=True):
-        text = a.get_text(strip=True).lower()
-        if "get free coupon" in text:
-            href = a["href"]
+    if button:
+        # Try to extract from href
+        href = button.get_attribute("href")
+        if href:
+            # Resolve relative URLs
+            if not href.startswith("http"):
+                href = urljoin(cf_url, href)   # Playwright's page.urljoin also works, but use urljoin for safety
             if "udemy.com" in href:
                 return href
 
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "udemy" in href.lower():
-            print("FOUND UDEMY:", href)
+        # Try onclick attribute
+        onclick = button.get_attribute("onclick")
+        if onclick:
+            match = re.search(r"https?://(?:www\.)?udemy\.com/course/[^'\"]+", onclick)
+            if match:
+                return match.group(0)
 
-    # 2. Fallback: any Udemy course link
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "udemy.com/course/" in href:
-            return href
+        # Try data-* attributes (common: data-link, data-url, data-href)
+        for attr in ["data-link", "data-url", "data-href", "data-course-url"]:
+            val = button.get_attribute(attr)
+            if val and "udemy.com" in val:
+                return val
 
-    # 3. Check JSON-LD structured data
-    for script in soup.find_all("script", type="application/ld+json"):
-        try:
-            import json
-            data = json.loads(script.string)
-            if isinstance(data, dict):
-                if "offers" in data and isinstance(data["offers"], dict):
-                    url = data["offers"].get("url")
-                    if url and "udemy.com/course/" in url:
-                        return url
-                if "url" in data and "udemy.com/course/" in data["url"]:
-                    return data["url"]
-        except:
-            continue
+    # 2. If button not found or no link, search the entire page for any Udemy URL
+    content = page.content()
+    match = re.search(r"https?://(?:www\.)?udemy\.com/course/[^'\"]+", content)
+    if match:
+        return match.group(0)
 
     return None
 
@@ -266,7 +269,8 @@ def main():
             if new_posts >= MAX_NEW:
                 break
 
-            udemy = extract_udemy_link(cf_url)
+            # NEW: Use Playwright-based extractor
+            udemy = extract_udemy_link_playwright(page, cf_url)
             if not udemy:
                 print(f"⏭️ No Udemy link in {cf_url}")
                 continue
