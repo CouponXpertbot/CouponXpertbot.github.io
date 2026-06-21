@@ -20,7 +20,7 @@ DEBUG = True
 # ==========================
 # Persistent Storage
 # ==========================
-POSTED_FILE = "posted_courses.txt"
+POSTED_FILE = "posted_courses_coursefolder.txt"
 
 def load_posted_links() -> set:
     if not os.path.exists(POSTED_FILE):
