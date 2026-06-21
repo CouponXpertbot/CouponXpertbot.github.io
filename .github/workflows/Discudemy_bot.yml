@@ -30,7 +30,7 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         run: python discudemy_bot.py
              
-      - name: Commit updated posted_courses.txt
+      - name: Commit updated posted_courses_discudemy.txt
         run: |
               git config --global user.name "github-actions[bot]"
               git config --global user.email "github-actions[bot]@users.noreply.github.com"
