@@ -218,3 +218,6 @@ https://www.udemy.com/course/agile-hr-ru/?couponCode=PAPAHR_JUN_567991
 https://www.udemy.com/course/servicenow-scripting-mastery-advanced-development/?couponCode=JUNEMO32026
 https://www.udemy.com/course/mastering-servicenow-administration-from-basics-to-expert/?couponCode=JUNEMO32026
 https://www.udemy.com/course/total-servicenow-developer-and-admin-course-with-javascript/?couponCode=JUNEMO32026
+https://www.udemy.com/course/html-like-never-before/?couponCode=JUNEMO32026
+https://www.udemy.com/course/servicenow-integrations-explained-in-detail/?couponCode=JUNEMO32026
+https://www.udemy.com/course/javascript-like-never-before/?couponCode=JUNEMO32026
