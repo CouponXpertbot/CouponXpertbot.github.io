@@ -233,3 +233,6 @@ https://www.udemy.com/course/advanced-rag-build-deploy-production-genai-apps/?co
 https://www.udemy.com/course/open-source-llms-uncensored-secure-ai-locally-with-rag/?couponCode=UDEAFFHP22025
 https://www.udemy.com/course/practical-intro-to-ai-agents-agentic-generative-ai-with-claude-cowork/?couponCode=UDEAFFHP22025
 https://www.udemy.com/course/ai-fundamentals-safe-ai-literacy-skills-for-work/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/ai-testing-deepeval-ragas-ollama/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/ai-103-azure-ai-engineer-certification/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/n8n-zapier-make-agents-builder-course/?couponCode=UDEAFFHP22025
