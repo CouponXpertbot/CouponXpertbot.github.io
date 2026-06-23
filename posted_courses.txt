@@ -227,3 +227,6 @@ https://www.udemy.com/course/classroom-management-with-child-psychology-safeguar
 https://www.udemy.com/course/php-with-laravel-2023-build-cms-blog-with-admin-panel/?couponCode=LARABLOG72
 https://www.udemy.com/course/llm-engineering-master-ai-and-large-language-models/?couponCode=UDEAFFHP22025
 https://www.udemy.com/course/the-complete-agentic-ai-engineering-course/
+https://www.udemy.com/course/100-days-of-code/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/ai-coder-from-vibe-coder-to-agentic-engineer/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/advanced-rag-build-deploy-production-genai-apps/?couponCode=UDEAFFHP22025
