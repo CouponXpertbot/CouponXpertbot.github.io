@@ -224,3 +224,6 @@ https://www.udemy.com/course/javascript-like-never-before/?couponCode=JUNEMO3202
 https://www.udemy.com/course/servicenow-mock-interviews-interview-questions/?couponCode=JUNEMO32026
 https://www.udemy.com/course/handling-sensitive-information-in-caregiving/?couponCode=42F630C890DFC770A759
 https://www.udemy.com/course/classroom-management-with-child-psychology-safeguarding/?couponCode=7EC630EEECC02665D5C8
+https://www.udemy.com/course/php-with-laravel-2023-build-cms-blog-with-admin-panel/?couponCode=LARABLOG72
+https://www.udemy.com/course/llm-engineering-master-ai-and-large-language-models/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/the-complete-agentic-ai-engineering-course/
