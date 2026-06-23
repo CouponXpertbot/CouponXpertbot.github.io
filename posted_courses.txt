@@ -230,3 +230,6 @@ https://www.udemy.com/course/the-complete-agentic-ai-engineering-course/
 https://www.udemy.com/course/100-days-of-code/?couponCode=UDEAFFHP22025
 https://www.udemy.com/course/ai-coder-from-vibe-coder-to-agentic-engineer/?couponCode=UDEAFFHP22025
 https://www.udemy.com/course/advanced-rag-build-deploy-production-genai-apps/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/open-source-llms-uncensored-secure-ai-locally-with-rag/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/practical-intro-to-ai-agents-agentic-generative-ai-with-claude-cowork/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/ai-fundamentals-safe-ai-literacy-skills-for-work/?couponCode=UDEAFFHP22025
