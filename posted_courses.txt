@@ -236,3 +236,6 @@ https://www.udemy.com/course/ai-fundamentals-safe-ai-literacy-skills-for-work/?c
 https://www.udemy.com/course/ai-testing-deepeval-ragas-ollama/?couponCode=UDEAFFHP22025
 https://www.udemy.com/course/ai-103-azure-ai-engineer-certification/?couponCode=UDEAFFHP22025
 https://www.udemy.com/course/n8n-zapier-make-agents-builder-course/?couponCode=UDEAFFHP22025
+https://www.udemy.com/course/bash-shell-scripting-bootcamp-10-project-based-learning/?couponCode=AE8F163B4EC270F49A7E
+https://www.udemy.com/course/master-wordpress-website-development-and-monetization/?couponCode=A4F20975220775BE530C
+https://www.udemy.com/course/learn-shell-scripting-incl-awksedand-more-than-10-project/?couponCode=F66FB4F1BA8985DDA237
