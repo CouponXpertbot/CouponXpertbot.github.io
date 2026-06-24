@@ -239,3 +239,5 @@ https://www.udemy.com/course/n8n-zapier-make-agents-builder-course/?couponCode=U
 https://www.udemy.com/course/bash-shell-scripting-bootcamp-10-project-based-learning/?couponCode=AE8F163B4EC270F49A7E
 https://www.udemy.com/course/master-wordpress-website-development-and-monetization/?couponCode=A4F20975220775BE530C
 https://www.udemy.com/course/learn-shell-scripting-incl-awksedand-more-than-10-project/?couponCode=F66FB4F1BA8985DDA237
+https://www.udemy.com/course/master-java-python-c-c-all-in-one-programming-course/?couponCode=4E03097D125682D45393
+https://www.udemy.com/course/breaking-apis-an-offensive-api-pentesting-course/?couponCode=4278818858DD2BF58C63
