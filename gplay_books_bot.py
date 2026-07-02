@@ -1,30 +1,26 @@
 import os
 import re
-import csv
 import time
+import requests
 from typing import Optional
-import serpapi
+from serpapi import GoogleSearch
 
 # ==========================
 # Telegram & Storage
 # ==========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = "@channelboottest"
+CHANNEL = os.environ["CHANNEL_ID"]
 POSTED_FILE = "posted_books_gplay.txt"
 
-# SerpApi key
 SERPAPI_KEY = os.environ["SERPAPI_API_KEY"]
 
-# Scraping settings (adjust as needed)
-GL = "us"                # country
-HL = "en"                # language
-MAX_PAGES = 3            # chart/category pages to sweep
-CATEGORIES = []          # e.g., ["books_computers", "books_business"] — see SerpApi docs
-DELAY_BETWEEN_CHECKS = 1.0  # seconds between product lookups
+# Settings
+GL = "us"
+HL = "en"
+MAX_PAGES = 3
+CATEGORIES = []  # e.g., ["books_computers", "books_business"]
+DELAY_BETWEEN_CHECKS = 1.0
 
-# ==========================
-# Helpers
-# ==========================
 def load_posted_books() -> set:
     if not os.path.exists(POSTED_FILE):
         return set()
@@ -36,7 +32,6 @@ def save_posted_book(product_id: str):
         f.write(product_id + "\n")
 
 def send_telegram_message(book_title: str, link: str, original_price: float) -> bool:
-    import requests
     message = (
         f"📘 *Book Price Drop!*\n\n"
         f"*{book_title}*\n"
@@ -52,15 +47,12 @@ def send_telegram_message(book_title: str, link: str, original_price: float) -> 
         print(f"❌ Telegram send failed: {e}")
         return False
 
-def get_client():
-    if not SERPAPI_KEY:
-        raise ValueError("SERPAPI_API_KEY environment variable not set")
-    return serpapi.Client(api_key=SERPAPI_KEY)
+def get_search(params):
+    """Helper to run a SerpApi search and return the result dict."""
+    search = GoogleSearch(params)
+    return search.get_dict()
 
-# ==========================
-# SerpApi scraping functions (adapted from original script)
-# ==========================
-def fetch_free_chart_candidates(client, gl: str, hl: str, max_pages: int):
+def fetch_free_chart_candidates(gl: str, hl: str, max_pages: int):
     """Pull product_ids from the Top Selling Free chart."""
     seen = {}
     params = {
@@ -68,11 +60,12 @@ def fetch_free_chart_candidates(client, gl: str, hl: str, max_pages: int):
         "chart": "topselling_free",
         "gl": gl,
         "hl": hl,
+        "api_key": SERPAPI_KEY,
     }
     page = 0
     while page < max_pages:
         page += 1
-        result = client.search(params)
+        result = get_search(params)
         items = result.get("top_charts") or result.get("organic_results") or []
         if not items:
             break
@@ -89,16 +82,11 @@ def fetch_free_chart_candidates(client, gl: str, hl: str, max_pages: int):
         next_token = pagination.get("next_page_token")
         if not next_token:
             break
-        params = {
-            "engine": "google_play_books",
-            "gl": gl,
-            "hl": hl,
-            "next_page_token": next_token,
-        }
+        params["next_page_token"] = next_token
         time.sleep(1)
     return seen
 
-def fetch_category_candidates(client, gl: str, hl: str, category: str, max_pages: int):
+def fetch_category_candidates(gl: str, hl: str, category: str, max_pages: int):
     """Pull product_ids from a specific Play Books category."""
     seen = {}
     params = {
@@ -106,11 +94,12 @@ def fetch_category_candidates(client, gl: str, hl: str, category: str, max_pages
         "books_category": category,
         "gl": gl,
         "hl": hl,
+        "api_key": SERPAPI_KEY,
     }
     page = 0
     while page < max_pages:
         page += 1
-        result = client.search(params)
+        result = get_search(params)
         items = result.get("organic_results") or result.get("category_results") or []
         if not items:
             break
@@ -127,12 +116,7 @@ def fetch_category_candidates(client, gl: str, hl: str, category: str, max_pages
         next_token = pagination.get("next_page_token")
         if not next_token:
             break
-        params = {
-            "engine": "google_play_books",
-            "gl": gl,
-            "hl": hl,
-            "next_page_token": next_token,
-        }
+        params["next_page_token"] = next_token
         time.sleep(1)
     return seen
 
@@ -161,15 +145,16 @@ def parse_offer_for_drop(offer: dict):
     )
     return is_drop, original_price, (0.0 if is_free_text else current_price)
 
-def check_product_for_drop(client, gl: str, hl: str, product_id: str):
+def check_product_for_drop(gl: str, hl: str, product_id: str):
     params = {
         "engine": "google_play_product",
         "product_id": product_id,
         "store": "books",
         "gl": gl,
         "hl": hl,
+        "api_key": SERPAPI_KEY,
     }
-    result = client.search(params)
+    result = get_search(params)
     info = result.get("product_info", {}) or {}
     offers = info.get("offers", []) or []
 
@@ -181,25 +166,20 @@ def check_product_for_drop(client, gl: str, hl: str, product_id: str):
             break
     return info, best
 
-# ==========================
-# Main
-# ==========================
 def main():
     print("🚀 Google Play Books Price-Drop Bot Started")
     posted = load_posted_books()
-    client = get_client()
 
     # 1. Collect candidates from free chart + optional categories
-    candidates = fetch_free_chart_candidates(client, GL, HL, MAX_PAGES)
+    candidates = fetch_free_chart_candidates(GL, HL, MAX_PAGES)
     for cat in CATEGORIES:
         print(f"Sweeping category '{cat}'...")
-        candidates.update(fetch_category_candidates(client, GL, HL, cat, MAX_PAGES))
+        candidates.update(fetch_category_candidates(GL, HL, cat, MAX_PAGES))
 
     print(f"Collected {len(candidates)} unique candidate books.")
 
-    # 2. Check each for a real price drop
     new_posts = 0
-    MAX_NEW = 3  # limit per run
+    MAX_NEW = 3
 
     for i, (pid, meta) in enumerate(candidates.items(), 1):
         if new_posts >= MAX_NEW:
@@ -209,7 +189,7 @@ def main():
             continue
 
         try:
-            info, drop = check_product_for_drop(client, GL, HL, pid)
+            info, drop = check_product_for_drop(GL, HL, pid)
         except Exception as e:
             print(f"  [{i}/{len(candidates)}] ERROR on {pid}: {e}")
             continue
