@@ -1,0 +1,31 @@
+name: Google Play Books Price Drop Bot
+
+on:
+  schedule:
+    - cron: "0 */8 * * *"   # every 8 hours (3 times/day)
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run bot
+        env:
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+        run: python gplay_books_bot.py
+      - name: Commit posted books
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add posted_books_gplay.txt
+          git diff --staged --quiet || git commit -m "Update posted books [skip ci]"
+          git push
