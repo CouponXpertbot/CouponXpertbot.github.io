@@ -9,7 +9,7 @@ from serpapi import GoogleSearch
 # Telegram & Storage
 # ==========================
 BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHANNEL = os.environ["CHANNEL_ID"]
+CHANNEL = "@channelboottest"
 POSTED_FILE = "posted_books_gplay.txt"
 
 SERPAPI_KEY = os.environ["SERPAPI_API_KEY"]
