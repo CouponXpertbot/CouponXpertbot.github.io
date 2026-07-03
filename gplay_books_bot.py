@@ -130,7 +130,7 @@ Write only the message content.
         if "google.genai" in str(type(client)):
             # New client
             response = client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.0-flash",
                 contents=prompt
             )
             ai_text = response.text.strip()
