@@ -30,7 +30,7 @@ if USE_GEMINI:
         try:
             import google.generativeai as genai_old
             genai_old.configure(api_key=GEMINI_API_KEY)
-            client = genai_old.GenerativeModel('gemini-2.0-flash')
+            client = genai_old.GenerativeModel('gemini-3.1-flash-lite')
             USE_GEMINI = True
             print("✅ Gemini (legacy) initialized.")
         except ImportError:
@@ -130,7 +130,7 @@ Write only the message content.
         if "google.genai" in str(type(client)):
             # New client
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3.1-flash-lite",
                 contents=prompt
             )
             ai_text = response.text.strip()
