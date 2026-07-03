@@ -2,9 +2,8 @@ import os
 import re
 import time
 import requests
-from typing import Optional, List, Dict
+from typing import Optional, List
 from serpapi import GoogleSearch
-import google.generativeai as genai
 
 # ==========================
 # Telegram & Storage
@@ -12,16 +11,33 @@ import google.generativeai as genai
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL = os.environ["CHANNEL_ID"]
 POSTED_FILE = "posted_books_gplay.txt"
-
-# API Keys
 SERPAPI_KEY = os.environ["SERPAPI_API_KEY"]
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 # ==========================
-# Gemini Configuration
+# Gemini (optional) – new client
 # ==========================
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+USE_GEMINI = GEMINI_API_KEY is not None
+
+if USE_GEMINI:
+    try:
+        # Use the new recommended package: google.genai
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        print("✅ Gemini client initialized.")
+    except ImportError:
+        # Fallback to old package if new one not installed
+        try:
+            import google.generativeai as genai_old
+            genai_old.configure(api_key=GEMINI_API_KEY)
+            client = genai_old.GenerativeModel('gemini-1.5-flash')
+            USE_GEMINI = True
+            print("✅ Gemini (legacy) initialized.")
+        except ImportError:
+            USE_GEMINI = False
+            print("⚠️ Gemini not available – using fallback.")
+else:
+    print("⚠️ GEMINI_API_KEY not set – using fallback message format.")
 
 # ==========================
 # Settings
@@ -29,7 +45,7 @@ model = genai.GenerativeModel('gemini-1.5-flash')
 GL = "us"
 HL = "en"
 MAX_PAGES = 3
-CATEGORIES = []  # e.g., ["books_computers", "books_business"]
+CATEGORIES = []  # optional categories
 DELAY_BETWEEN_CHECKS = 1.0
 MAX_NEW_POSTS = 3
 
@@ -47,7 +63,7 @@ def save_posted_book(product_id: str):
         f.write(product_id + "\n")
 
 # ==========================
-# Gemini Message Generator
+# Message Generation (with or without Gemini)
 # ==========================
 def generate_ai_book_message(
     title: str,
@@ -58,46 +74,71 @@ def generate_ai_book_message(
     categories: List[str] = None
 ) -> str:
     """
-    Uses Gemini to craft a formatted Telegram message like the example.
+    Uses Gemini (if available) to craft a formatted Telegram message.
+    Falls back to a clean template.
     """
-    # If no description, provide a placeholder
-    if not description or len(description) < 20:
-        description = f"Discover '{title}' – now available for free on Google Play Books."
+    if not USE_GEMINI:
+        # Simple fallback
+        return f"""🔍 FREE GOOGLE PLAY BOOK
 
-    # Build prompt
-    categories_str = ", ".join(categories[:3]) if categories else "Various"
+📘 {title}
+✍️ {author or 'Unknown'}
+
+{description[:120] if description else "Now available for free on Google Play Books."}
+
+🔗 Read Now:
+{link}"""
+
+    # Build prompt for Gemini
+    cats = categories[:3] if categories else ["Readers"]
+    tags = "\n".join([f"✔ {c}" for c in cats])
     prompt = f"""
-You are a book enthusiast writing a Telegram post to announce that a book has become FREE on Google Play Books.
+You are a book enthusiast writing a Telegram post to announce a book has become FREE on Google Play Books.
 
-Write a short, engaging message (max 250 characters) using the format below. Use emojis where appropriate.
+Write a short, engaging message (max 300 characters) using the format below. Use emojis.
 
-Book details:
-- Title: {title}
-- Author: {author or 'Unknown'}
-- Description: {description[:200]}...
-- Original price: ₹{original_price:.2f} → now FREE
-- Link: {link}
-- Categories: {categories_str}
+Book:
+Title: {title}
+Author: {author or 'Unknown'}
+Description: {description[:200]}...
+Original price: ₹{original_price:.2f} → now FREE
+Link: {link}
+Categories: {', '.join(cats)}
 
-Format requirements:
-- Start with "🔍 FREE GOOGLE PLAY BOOK"
-- Next line: "📘 {Title}" (with emoji)
-- Next: "✍️ {Author}" (if available)
-- Next: a one‑sentence summary of the description
-- Next: "🎯 Perfect For:" followed by 3‑4 tags (e.g., "✔ Psychological Thriller Fans", "✔ Mystery Lovers", etc.) derived from categories/description
-- Next: "🚀 Packed with..." (a short catchy line)
-- End with "🔗 Read Now:" and the link (the link should be on its own line).
+Format:
+🔍 FREE GOOGLE PLAY BOOK
 
-Do NOT include any price or availability warnings – I will add those later.
-Do NOT include the channel promo – I will add that later.
+📘 {title}
+✍️ {author}
 
-Write only the message content, no extra commentary.
+💡 A one‑sentence summary from description.
+
+🎯 Perfect For:
+✔ Category1
+✔ Category2
+✔ Category3
+
+🚀 A short, catchy line about the book.
+
+🔗 Read Now:
+{link}
+
+Do NOT include prices, availability warnings, or channel promos – I will add those later.
+Write only the message content.
 """
-
     try:
-        response = model.generate_content(prompt)
-        ai_text = response.text.strip()
-        # Ensure the link is present
+        if "google.genai" in str(type(client)):
+            # New client
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=prompt
+            )
+            ai_text = response.text.strip()
+        else:
+            # Legacy client
+            response = client.generate_content(prompt)
+            ai_text = response.text.strip()
+        # Ensure link appears
         if link not in ai_text:
             ai_text += f"\n\n🔗 Read Now:\n{link}"
         return ai_text
@@ -108,13 +149,13 @@ Write only the message content, no extra commentary.
 📘 {title}
 ✍️ {author or 'Unknown'}
 
-{description[:100]}...
+{description[:100] if description else "Now available for free on Google Play Books."}
 
 🔗 Read Now:
 {link}"""
 
 # ==========================
-# Telegram Sender (with Gemini)
+# Telegram Sender
 # ==========================
 def send_telegram_message(
     title: str,
@@ -124,32 +165,24 @@ def send_telegram_message(
     link: str,
     categories: List[str] = None
 ) -> bool:
-    # Generate the core message using Gemini
-    core_message = generate_ai_book_message(
-        title, author, description, original_price, link, categories
-    )
-
-    # Static footer (as in your example)
+    core = generate_ai_book_message(title, author, description, original_price, link, categories)
     footer = f"""
 
 ⚠️ Price & availability may vary by account/region. Offer may end anytime.
 
 👇 Join for daily FREE books & courses
 👉 https://t.me/CouponXpert"""
-
-    full_message = core_message + footer
-
-    # Send to Telegram
+    full = core + footer
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
-        r = requests.post(url, data={"chat_id": CHANNEL, "text": full_message}, timeout=10)
+        r = requests.post(url, data={"chat_id": CHANNEL, "text": full}, timeout=10)
         return r.status_code == 200
     except Exception as e:
         print(f"❌ Telegram send failed: {e}")
         return False
 
 # ==========================
-# SerpApi functions (unchanged from working version)
+# SerpApi functions (unchanged)
 # ==========================
 def get_search(params):
     search = GoogleSearch(params)
@@ -228,17 +261,14 @@ def parse_offer_for_drop(offer: dict):
     extracted_price = offer.get("price_extracted") or offer.get("extracted_price")
     prices_in_text = [float(p) for p in PRICE_RE.findall(text)]
     is_free_text = "free" in text.lower()
-
     current_price = extracted_price
     if current_price is None:
         current_price = 0.0 if is_free_text else (prices_in_text[-1] if prices_in_text else None)
-
     original_price = None
     if len(prices_in_text) >= 2:
         original_price = prices_in_text[0]
     elif len(prices_in_text) == 1 and is_free_text:
         original_price = prices_in_text[0]
-
     is_drop = bool(
         original_price
         and original_price > 0
@@ -258,7 +288,6 @@ def check_product_for_drop(gl: str, hl: str, product_id: str):
     result = get_search(params)
     info = result.get("product_info", {}) or {}
     offers = info.get("offers", []) or []
-
     best = None
     for offer in offers:
         is_drop, orig, curr = parse_offer_for_drop(offer)
@@ -267,14 +296,10 @@ def check_product_for_drop(gl: str, hl: str, product_id: str):
             break
     return info, best
 
-# ==========================
-# Main
-# ==========================
 def main():
     print("🚀 Google Play Books Price-Drop Bot (with Gemini) Started")
     posted = load_posted_books()
 
-    # 1. Collect candidates
     candidates = fetch_free_chart_candidates(GL, HL, MAX_PAGES)
     for cat in CATEGORIES:
         print(f"Sweeping category '{cat}'...")
@@ -283,10 +308,8 @@ def main():
     print(f"Collected {len(candidates)} unique candidate books.")
 
     new_posts = 0
-    MAX_NEW = 3
-
     for i, (pid, meta) in enumerate(candidates.items(), 1):
-        if new_posts >= MAX_NEW:
+        if new_posts >= MAX_NEW_POSTS:
             break
         if pid in posted:
             print(f"  [{i}/{len(candidates)}] Already posted: {pid}")
@@ -303,7 +326,7 @@ def main():
             orig, curr, offer_text = drop
             print(f"  [{i}/{len(candidates)}] DROP FOUND: {title} (${orig:.2f} -> Free)")
 
-            # Extract additional data
+            # Extract author
             author = info.get("authors")
             if author and isinstance(author, list):
                 author = ", ".join([a.get("name", "") for a in author if a.get("name")])
@@ -311,11 +334,9 @@ def main():
                 author = meta.get("author") or "Unknown"
 
             description = info.get("description", "")
-            categories = info.get("categories", [])  # list of category names
-
+            categories = info.get("categories", [])
             link = meta.get("link") or f"https://play.google.com/store/books/details?id={pid}"
 
-            # Send with Gemini-generated message
             if send_telegram_message(title, author, description, orig, link, categories):
                 save_posted_book(pid)
                 posted.add(pid)
