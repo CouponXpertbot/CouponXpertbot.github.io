@@ -30,7 +30,7 @@ if USE_GEMINI:
         try:
             import google.generativeai as genai_old
             genai_old.configure(api_key=GEMINI_API_KEY)
-            client = genai_old.GenerativeModel('gemini-1.5-flash')
+            client = genai_old.GenerativeModel('gemini-2.0-flash')
             USE_GEMINI = True
             print("✅ Gemini (legacy) initialized.")
         except ImportError:
