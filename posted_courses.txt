@@ -256,3 +256,6 @@ https://www.udemy.com/course/python-programming-for-beginners-learn-python-from-
 https://www.udemy.com/course/the-ultimate-c-bootcamp-build-modern-web-api-apps/?couponCode=F0601E5A9EE15D5EE155
 https://www.udemy.com/course/python-course-for-app-developers-build-your-first-app/?couponCode=416D868731A3A51FF498
 https://www.udemy.com/course/python-machine-learning-from-beginner-to-pro/?couponCode=C5FE475310CBDF5305B6
+https://www.udemy.com/course/complete-ms-office-course-masterclass-beginner-to-advanced/?couponCode=23C6BE2E835B8E97D624
+https://www.udemy.com/course/master-nodejs-from-beginner-to-full-stack-developer/?couponCode=5F92663DDF977323B473
+https://www.udemy.com/course/the-complete-python-developer-from-zero-to-mastery/?couponCode=ACE2788C75E32E5E5719
