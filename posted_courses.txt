@@ -263,3 +263,6 @@ https://www.udemy.com/course/ai-primer-for-all-employees-in-30-minutes-ai-fast-t
 https://www.udemy.com/course/modern-nlp-for-ai-engineers-data-scientists/?couponCode=JULFREE01
 https://www.udemy.com/course/agenticops-designing-ai-native-autonomous-systems/?couponCode=JULFREE01
 https://www.udemy.com/course/numpy-pandas-python-for-data-analysis-a-complete-guide/?couponCode=8CA5A32879ECC7430499
+https://www.udemy.com/course/certified-nvidia-ai-expert/?couponCode=JULFREE01
+https://www.udemy.com/course/nca-aiio-nvidia-certified-associate-ai-infrastructure-and-operations/?couponCode=JULFREE01
+https://www.udemy.com/course/revenue-operations-intelligence-revops-roi-blueprint/?couponCode=C7D9E318E9C9FB2E1051
