@@ -260,3 +260,6 @@ https://www.udemy.com/course/complete-ms-office-course-masterclass-beginner-to-a
 https://www.udemy.com/course/master-nodejs-from-beginner-to-full-stack-developer/?couponCode=5F92663DDF977323B473
 https://www.udemy.com/course/the-complete-python-developer-from-zero-to-mastery/?couponCode=ACE2788C75E32E5E5719
 https://www.udemy.com/course/ai-primer-for-all-employees-in-30-minutes-ai-fast-track/?couponCode=63AE394B630B0DB3F7CF
+https://www.udemy.com/course/modern-nlp-for-ai-engineers-data-scientists/?couponCode=JULFREE01
+https://www.udemy.com/course/agenticops-designing-ai-native-autonomous-systems/?couponCode=JULFREE01
+https://www.udemy.com/course/numpy-pandas-python-for-data-analysis-a-complete-guide/?couponCode=8CA5A32879ECC7430499
