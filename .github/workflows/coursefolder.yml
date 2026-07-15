@@ -2,8 +2,8 @@ name: CourseFolder Bot
 
 on:
   schedule:
-    - cron: '*/10 * * * *'   # run every 10 minutes
-  workflow_dispatch:         # allow manual trigger
+    - cron: '*/10 * * * *'   # every 10 minutes
+  workflow_dispatch:         # manual trigger
 
 jobs:
   run:
@@ -23,21 +23,15 @@ jobs:
           pip install -r requirements1.txt
           playwright install chromium
 
-      - name: Create config.json from secrets
-        run: |
-          echo '{
-            "BOT_TOKEN": "${{ secrets.BOT_TOKEN }}",
-            "CHANNEL_ID": "${{ secrets.CHANNEL_ID }}",
-            "CHANNEL_INVITE": "${{ secrets.CHANNEL_INVITE }}",
-            "GEMINI_KEY": "${{ secrets.GEMINI_KEY }}",
-            "CHECK_INTERVAL": 300,
-            "COURSE_LIMIT": 50,
-            "PLAYWRIGHT_HEADLESS": true,
-            "AI_ENABLED": true,
-            "AI_MODEL": "gemini-pro",
-            "AI_TEMPERATURE": 0.7,
-            "AI_MAX_TOKENS": 200
-          }' > config.json
-
       - name: Run bot
-        run: python bot.py
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          CHANNEL_INVITE: ${{ secrets.CHANNEL_INVITE }}
+          GEMINI_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Optional: override defaults
+          CHECK_INTERVAL: ${{ secrets.CHECK_INTERVAL }}
+          COURSE_LIMIT: ${{ secrets.COURSE_LIMIT }}
+          PLAYWRIGHT_HEADLESS: ${{ secrets.PLAYWRIGHT_HEADLESS }}
+          AI_ENABLED: ${{ secrets.AI_ENABLED }}
+        run: python coursefolder.py
