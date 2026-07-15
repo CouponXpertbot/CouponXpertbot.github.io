@@ -43,7 +43,7 @@ class CourseFolderBot:
     # ---------- Configuration ----------
     def _load_config(self, path: str) -> Dict:
         default = {
-            'BOT_TOKEN': 'YOUR_BOT_TOKEN',
+            'BOT_TOKEN': 'BOT_TOKEN',
             'CHANNEL_ID': '@your_channel',
             'CHANNEL_INVITE': 'https://t.me/your_channel',  # for button
             'GEMINI_KEY': 'YOUR_GEMINI_API_KEY',
