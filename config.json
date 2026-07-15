@@ -1,0 +1,13 @@
+{
+  "BOT_TOKEN": "YOUR_TELEGRAM_BOT_TOKEN",
+  "CHANNEL_ID": "@channelboottest",
+  "CHANNEL_INVITE": "https://t.me/couponxpert",
+  "GEMINI_KEY": "YOUR_GOOGLE_GEMINI_API_KEY",
+  "CHECK_INTERVAL": 300,
+  "COURSE_LIMIT": 50,
+  "PLAYWRIGHT_HEADLESS": true,
+  "AI_ENABLED": true,
+  "AI_MODEL": "gemini-pro",
+  "AI_TEMPERATURE": 0.7,
+  "AI_MAX_TOKENS": 200
+}
