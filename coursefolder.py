@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 import logging
 
-# --- New Google GenAI SDK ---
+# --- Google GenAI (new SDK) ---
 try:
     from google import genai
     from google.genai import types
@@ -36,11 +36,11 @@ class CourseFolderBot:
         self.browser = None
         self.context = None
 
-        # Init Gemini (new SDK) with model set to Gemini 3.1 Lite
+        # Init Gemini
         if self.config.get('AI_ENABLED', True) and GENAI_AVAILABLE:
             try:
                 self.ai_client = genai.Client(api_key=self.config['GEMINI_API_KEY'])
-                self.ai_model = self.config.get('AI_MODEL', 'gemini-3.1-lite')  # as requested
+                self.ai_model = self.config.get('AI_MODEL', 'gemini-3.1-lite')
                 logger.info(f"Gemini AI initialized with model: {self.ai_model}")
             except Exception as e:
                 logger.error(f"Gemini init failed: {e}")
@@ -53,20 +53,18 @@ class CourseFolderBot:
             'BOT_TOKEN': None,
             'CHANNEL_ID': None,
             'CHANNEL_INVITE': 'https://t.me/your_channel',
-            'GEMINI_API_KEY': None,          # primary env var
-            'GEMINI_KEY': None,              # fallback (legacy)
+            'GEMINI_API_KEY': None,
+            'GEMINI_KEY': None,          # fallback
             'CHECK_INTERVAL': 300,
             'COURSE_LIMIT': 50,
-            'PLAYWRIGHT_HEADLESS': True,
             'AI_ENABLED': True,
-            'AI_MODEL': 'gemini-3.1-lite',   # default model
+            'AI_MODEL': 'gemini-3.1-lite',
             'AI_TEMPERATURE': 0.7,
             'AI_MAX_TOKENS': 200,
             'PLAYWRIGHT_TIMEOUT': 45000
         }
 
-        # 1. Read from environment
-        # We'll look for GEMINI_API_KEY first, then GEMINI_KEY
+        # Environment variables (GEMINI_API_KEY first, then GEMINI_KEY)
         for key in default.keys():
             env_val = None
             if key == 'GEMINI_API_KEY':
@@ -85,12 +83,12 @@ class CourseFolderBot:
                         default[key] = float(env_val)
                     except ValueError:
                         pass
-                elif key in ['PLAYWRIGHT_HEADLESS', 'AI_ENABLED']:
+                elif key in ['AI_ENABLED']:
                     default[key] = env_val.lower() == 'true'
                 else:
                     default[key] = env_val
 
-        # 2. Override with config.json if exists (for local testing)
+        # Override with config.json if exists
         try:
             with open(path, 'r') as f:
                 file_cfg = json.load(f)
@@ -101,18 +99,16 @@ class CourseFolderBot:
         except FileNotFoundError:
             logger.info("No config.json, using environment variables only")
 
-        # Validate that we have an API key (either GEMINI_API_KEY or GEMINI_KEY)
+        # Normalize API key
         api_key = default.get('GEMINI_API_KEY') or default.get('GEMINI_KEY')
         if not api_key:
-            raise ValueError("Missing Gemini API key. Set GEMINI_API_KEY or GEMINI_KEY in environment or config.json.")
-        # Normalize: set GEMINI_API_KEY to the found value
+            raise ValueError("Missing Gemini API key. Set GEMINI_API_KEY or GEMINI_KEY.")
         default['GEMINI_API_KEY'] = api_key
 
-        # Validate other required
         required = ['BOT_TOKEN', 'CHANNEL_ID']
         missing = [k for k in required if default.get(k) is None]
         if missing:
-            raise ValueError(f"Missing required config: {missing}. Set as env vars or in config.json.")
+            raise ValueError(f"Missing required config: {missing}")
 
         return default
 
@@ -159,7 +155,6 @@ class CourseFolderBot:
                     '.css', '.js', '/preview/', '/preview-embed/'
                 ])):
                 urls.append(href)
-        # Deduplicate
         seen = set()
         return [u for u in urls if not (u in seen or seen.add(u))]
 
@@ -185,17 +180,14 @@ class CourseFolderBot:
         }
 
         # JSON‑LD first
-        json_ld_coupon = None
         for script in soup.find_all('script', type='application/ld+json'):
             if 'couponCode=' in script.text:
                 match = re.search(r'https://www\.udemy\.com/course/[^"\']+', script.text)
                 if match:
-                    json_ld_coupon = match.group(0)
+                    data['udemy_url'] = match.group(0)
                     break
 
-        if json_ld_coupon:
-            data['udemy_url'] = json_ld_coupon
-        else:
+        if not data['udemy_url']:
             for a in soup.find_all('a', href=True):
                 href = a['href']
                 if 'udemy.com' in href and 'couponCode=' in href and '/preview/' not in href:
@@ -210,7 +202,6 @@ class CourseFolderBot:
         if code_match:
             data['coupon_code'] = code_match.group(1)
         else:
-            logger.warning(f"No coupon code found in {data['udemy_url']}")
             return None
 
         course_path = re.search(r'/course/([^/?]+)', data['udemy_url'])
@@ -218,12 +209,11 @@ class CourseFolderBot:
             data['course_slug'] = course_path.group(1)
             data['course_id'] = data['course_slug']
 
-        # Title
+        # Title, image, description, etc.
         h1 = soup.find('h1')
         if h1:
             data['title'] = h1.text.strip()
 
-        # Image
         img = (soup.find('img', {'class': re.compile(r'course.*image')}) or
                soup.find('img', {'class': re.compile(r'.*thumb.*')}) or
                soup.find('img', {'class': re.compile(r'.*featured.*')}))
@@ -233,14 +223,12 @@ class CourseFolderBot:
                 src = 'https:' + src
             data['image'] = src
 
-        # Description
         desc = (soup.find('div', {'class': re.compile(r'.*description.*')}) or
                 soup.find('div', {'class': re.compile(r'.*content.*')}) or
                 soup.find('div', {'class': re.compile(r'.*course.*info.*')}))
         if desc:
             data['description'] = desc.text.strip()[:400]
 
-        # Rating – use string= instead of text=
         rating_tag = soup.find(string=re.compile(r'\d+\.\d+\s+stars'))
         if rating_tag:
             data['rating'] = rating_tag.strip()
@@ -249,18 +237,15 @@ class CourseFolderBot:
             if meta and meta.get('content'):
                 data['rating'] = meta['content']
 
-        # Students – use string=
         students_tag = soup.find(string=re.compile(r'(\d+[,.]?\d*)\s*students', re.I))
         if students_tag:
             data['students'] = students_tag.strip()
 
-        # Language
         for lang in ['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Korean']:
             if lang in soup.text:
                 data['language'] = lang
                 break
 
-        # Category
         for cat in ['Development', 'Business', 'IT', 'Design', 'Marketing', 'Finance', 'Health']:
             if cat in soup.text:
                 data['category'] = cat
@@ -269,18 +254,19 @@ class CourseFolderBot:
         data['timestamp'] = datetime.now().isoformat()
         return data
 
+    async def _ensure_browser(self):
+        """Create browser if not exists or if closed."""
+        if self.browser is None:
+            p = await async_playwright().start()
+            self.browser = await p.chromium.launch(headless=True)   # always headless
+            self.context = await self.browser.new_context(
+                viewport={'width': 1280, 'height': 720},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            )
+
     async def verify_coupon(self, coupon_url: str) -> Tuple[bool, Dict]:
         try:
-            if not self.browser:
-                p = await async_playwright().start()
-                self.browser = await p.chromium.launch(
-                    headless=self.config.get('PLAYWRIGHT_HEADLESS', True)
-                )
-                self.context = await self.browser.new_context(
-                    viewport={'width': 1280, 'height': 720},
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                )
-
+            await self._ensure_browser()
             page = await self.context.new_page()
             timeout = self.config.get('PLAYWRIGHT_TIMEOUT', 45000)
             await page.goto(coupon_url, wait_until='domcontentloaded', timeout=timeout)
@@ -323,6 +309,11 @@ class CourseFolderBot:
             }
         except Exception as e:
             logger.error(f"Playwright error for {coupon_url}: {e}")
+            # Reset browser so it will be recreated next time
+            if self.browser:
+                await self.browser.close()
+                self.browser = None
+                self.context = None
             return False, {'error': str(e)}
 
     async def ai_format_post(self, course_data: Dict) -> str:
