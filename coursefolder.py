@@ -10,7 +10,15 @@ import aiofiles
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 import logging
-import google.generativeai as genai
+
+# --- Use the new google.genai (replaces deprecated google.generativeai) ---
+try:
+    from google import genai
+    from google.genai import types
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+    logging.warning("google.genai not installed. AI features disabled.")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,19 +36,19 @@ class CourseFolderBot:
         self.browser = None
         self.context = None
 
-        if self.config.get('AI_ENABLED', True):
+        # Init Gemini (new API)
+        if self.config.get('AI_ENABLED', True) and GENAI_AVAILABLE:
             try:
-                genai.configure(api_key=self.config['GEMINI_KEY'])
-                self.ai_model = genai.GenerativeModel(
-                    self.config.get('AI_MODEL', 'gemini-pro')
-                )
-                logger.info("Gemini AI initialized")
+                self.ai_client = genai.Client(api_key=self.config['GEMINI_KEY'])
+                self.ai_model = self.config.get('AI_MODEL', 'gemini-2.0-flash-exp')  # latest
+                logger.info("Gemini AI (new SDK) initialized")
             except Exception as e:
                 logger.error(f"Gemini init failed: {e}")
                 self.config['AI_ENABLED'] = False
+        else:
+            self.config['AI_ENABLED'] = False
 
     def _load_config(self, path: str) -> Dict:
-        # Defaults
         default = {
             'BOT_TOKEN': None,
             'CHANNEL_ID': None,
@@ -50,17 +58,17 @@ class CourseFolderBot:
             'COURSE_LIMIT': 50,
             'PLAYWRIGHT_HEADLESS': True,
             'AI_ENABLED': True,
-            'AI_MODEL': 'gemini-pro',
+            'AI_MODEL': 'gemini-2.0-flash-exp',
             'AI_TEMPERATURE': 0.7,
-            'AI_MAX_TOKENS': 200
+            'AI_MAX_TOKENS': 200,
+            'PLAYWRIGHT_TIMEOUT': 45000  # 45 seconds
         }
 
-        # 1. Read from environment (uppercase names)
+        # Environment first
         for key in default.keys():
             env_val = os.environ.get(key)
             if env_val is not None:
-                # Convert types
-                if key in ['CHECK_INTERVAL', 'COURSE_LIMIT', 'AI_MAX_TOKENS']:
+                if key in ['CHECK_INTERVAL', 'COURSE_LIMIT', 'AI_MAX_TOKENS', 'PLAYWRIGHT_TIMEOUT']:
                     try:
                         default[key] = int(env_val)
                     except ValueError:
@@ -75,7 +83,7 @@ class CourseFolderBot:
                 else:
                     default[key] = env_val
 
-        # 2. Override with config.json if exists (for local testing)
+        # Override with config.json if exists
         try:
             with open(path, 'r') as f:
                 file_cfg = json.load(f)
@@ -135,9 +143,11 @@ class CourseFolderBot:
                 not any(skip in href for skip in [
                     '/category/', '/about.php', '/contact.php', '/courses.php',
                     '/blog.php', '/compare.php', '/liveCategory/',
-                    '/free-udemy-coupon.php', '.css', '.js', '/preview/'
+                    '/free-udemy-coupon.php', '/udemy-coupon-codes.php',
+                    '.css', '.js', '/preview/', '/preview-embed/'
                 ])):
                 urls.append(href)
+        # Deduplicate
         seen = set()
         return [u for u in urls if not (u in seen or seen.add(u))]
 
@@ -184,17 +194,25 @@ class CourseFolderBot:
             logger.warning(f"No Udemy coupon URL in {coursefolder_url}")
             return None
 
-        data['coupon_code'] = re.search(r'couponCode=([^&]+)', data['udemy_url']).group(1)
+        # Extract coupon code, course ID, and slug
+        code_match = re.search(r'couponCode=([^&]+)', data['udemy_url'])
+        if code_match:
+            data['coupon_code'] = code_match.group(1)
+        else:
+            logger.warning(f"No coupon code found in {data['udemy_url']}")
+            return None
+
         course_path = re.search(r'/course/([^/?]+)', data['udemy_url'])
         if course_path:
             data['course_slug'] = course_path.group(1)
-            data['course_id'] = data['course_slug']
+            data['course_id'] = data['course_slug']   # Use slug as ID
 
-        # Other fields
+        # Title
         h1 = soup.find('h1')
         if h1:
             data['title'] = h1.text.strip()
 
+        # Image
         img = (soup.find('img', {'class': re.compile(r'course.*image')}) or
                soup.find('img', {'class': re.compile(r'.*thumb.*')}) or
                soup.find('img', {'class': re.compile(r'.*featured.*')}))
@@ -204,13 +222,15 @@ class CourseFolderBot:
                 src = 'https:' + src
             data['image'] = src
 
+        # Description
         desc = (soup.find('div', {'class': re.compile(r'.*description.*')}) or
                 soup.find('div', {'class': re.compile(r'.*content.*')}) or
                 soup.find('div', {'class': re.compile(r'.*course.*info.*')}))
         if desc:
             data['description'] = desc.text.strip()[:400]
 
-        rating_tag = soup.find(text=re.compile(r'\d+\.\d+\s+stars'))
+        # Rating – use string= instead of text=
+        rating_tag = soup.find(string=re.compile(r'\d+\.\d+\s+stars'))
         if rating_tag:
             data['rating'] = rating_tag.strip()
         else:
@@ -218,15 +238,18 @@ class CourseFolderBot:
             if meta and meta.get('content'):
                 data['rating'] = meta['content']
 
-        students_tag = soup.find(text=re.compile(r'(\d+[,.]?\d*)\s*students', re.I))
+        # Students – use string=
+        students_tag = soup.find(string=re.compile(r'(\d+[,.]?\d*)\s*students', re.I))
         if students_tag:
             data['students'] = students_tag.strip()
 
+        # Language
         for lang in ['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Korean']:
             if lang in soup.text:
                 data['language'] = lang
                 break
 
+        # Category
         for cat in ['Development', 'Business', 'IT', 'Design', 'Marketing', 'Finance', 'Health']:
             if cat in soup.text:
                 data['category'] = cat
@@ -236,6 +259,7 @@ class CourseFolderBot:
         return data
 
     async def verify_coupon(self, coupon_url: str) -> Tuple[bool, Dict]:
+        """Verify coupon with Playwright – returns (is_valid, details)."""
         try:
             if not self.browser:
                 p = await async_playwright().start()
@@ -248,9 +272,12 @@ class CourseFolderBot:
                 )
 
             page = await self.context.new_page()
-            await page.goto(coupon_url, wait_until='networkidle', timeout=30000)
-            await page.wait_for_timeout(2000)
+            timeout = self.config.get('PLAYWRIGHT_TIMEOUT', 45000)
+            # Use domcontentloaded instead of networkidle for faster loading
+            await page.goto(coupon_url, wait_until='domcontentloaded', timeout=timeout)
+            await page.wait_for_timeout(3000)  # extra wait for dynamic content
 
+            # Evaluate price, coupon status
             price_free = await page.evaluate("""
                 () => document.body.textContent.includes('Free') ||
                      document.body.textContent.includes('₹0') ||
@@ -287,7 +314,7 @@ class CourseFolderBot:
                 'verified_at': datetime.now().isoformat()
             }
         except Exception as e:
-            logger.error(f"Playwright error: {e}")
+            logger.error(f"Playwright error for {coupon_url}: {e}")
             return False, {'error': str(e)}
 
     async def ai_format_post(self, course_data: Dict) -> str:
@@ -313,16 +340,18 @@ Format like:
 
 🔥 100% FREE – click the button below to enroll!
 """
-            response = self.ai_model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
+            # New API: generate_content
+            response = self.ai_client.models.generate_content(
+                model=self.ai_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
                     temperature=self.config.get('AI_TEMPERATURE', 0.7),
                     max_output_tokens=self.config.get('AI_MAX_TOKENS', 200)
                 )
             )
             return response.text.strip()
         except Exception as e:
-            logger.error(f"AI error: {e}")
+            logger.error(f"AI formatting error: {e}")
             return self._manual_format(course_data)
 
     def _manual_format(self, data: Dict) -> str:
@@ -416,7 +445,7 @@ Format like:
                     for url in urls[:self.config.get('COURSE_LIMIT', 50)]:
                         if await self.process_course(url):
                             posted += 1
-                            await asyncio.sleep(5)
+                            await asyncio.sleep(5)  # rate limit
                     logger.info(f"Posted {posted} new courses")
 
                     await asyncio.sleep(self.config.get('CHECK_INTERVAL', 300))
