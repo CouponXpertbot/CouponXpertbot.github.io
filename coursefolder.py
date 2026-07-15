@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 import logging
 
-# --- Use the new google.genai (replaces deprecated google.generativeai) ---
+# --- New Google GenAI SDK ---
 try:
     from google import genai
     from google.genai import types
@@ -36,12 +36,12 @@ class CourseFolderBot:
         self.browser = None
         self.context = None
 
-        # Init Gemini (new API)
+        # Init Gemini (new SDK) with model set to Gemini 3.1 Lite
         if self.config.get('AI_ENABLED', True) and GENAI_AVAILABLE:
             try:
-                self.ai_client = genai.Client(api_key=self.config['GEMINI_KEY'])
-                self.ai_model = self.config.get('AI_MODEL', 'gemini-2.0-flash-exp')  # latest
-                logger.info("Gemini AI (new SDK) initialized")
+                self.ai_client = genai.Client(api_key=self.config['GEMINI_API_KEY'])
+                self.ai_model = self.config.get('AI_MODEL', 'gemini-3.1-lite')  # as requested
+                logger.info(f"Gemini AI initialized with model: {self.ai_model}")
             except Exception as e:
                 logger.error(f"Gemini init failed: {e}")
                 self.config['AI_ENABLED'] = False
@@ -53,20 +53,27 @@ class CourseFolderBot:
             'BOT_TOKEN': None,
             'CHANNEL_ID': None,
             'CHANNEL_INVITE': 'https://t.me/your_channel',
-            'GEMINI_KEY': None,
+            'GEMINI_API_KEY': None,          # primary env var
+            'GEMINI_KEY': None,              # fallback (legacy)
             'CHECK_INTERVAL': 300,
             'COURSE_LIMIT': 50,
             'PLAYWRIGHT_HEADLESS': True,
             'AI_ENABLED': True,
-            'AI_MODEL': 'gemini-2.0-flash-exp',
+            'AI_MODEL': 'gemini-3.1-lite',   # default model
             'AI_TEMPERATURE': 0.7,
             'AI_MAX_TOKENS': 200,
-            'PLAYWRIGHT_TIMEOUT': 45000  # 45 seconds
+            'PLAYWRIGHT_TIMEOUT': 45000
         }
 
-        # Environment first
+        # 1. Read from environment
+        # We'll look for GEMINI_API_KEY first, then GEMINI_KEY
         for key in default.keys():
-            env_val = os.environ.get(key)
+            env_val = None
+            if key == 'GEMINI_API_KEY':
+                env_val = os.environ.get('GEMINI_API_KEY') or os.environ.get('GEMINI_KEY')
+            else:
+                env_val = os.environ.get(key)
+
             if env_val is not None:
                 if key in ['CHECK_INTERVAL', 'COURSE_LIMIT', 'AI_MAX_TOKENS', 'PLAYWRIGHT_TIMEOUT']:
                     try:
@@ -83,7 +90,7 @@ class CourseFolderBot:
                 else:
                     default[key] = env_val
 
-        # Override with config.json if exists
+        # 2. Override with config.json if exists (for local testing)
         try:
             with open(path, 'r') as f:
                 file_cfg = json.load(f)
@@ -94,13 +101,18 @@ class CourseFolderBot:
         except FileNotFoundError:
             logger.info("No config.json, using environment variables only")
 
-        # Validate required
-        required = ['BOT_TOKEN', 'CHANNEL_ID', 'GEMINI_KEY']
+        # Validate that we have an API key (either GEMINI_API_KEY or GEMINI_KEY)
+        api_key = default.get('GEMINI_API_KEY') or default.get('GEMINI_KEY')
+        if not api_key:
+            raise ValueError("Missing Gemini API key. Set GEMINI_API_KEY or GEMINI_KEY in environment or config.json.")
+        # Normalize: set GEMINI_API_KEY to the found value
+        default['GEMINI_API_KEY'] = api_key
+
+        # Validate other required
+        required = ['BOT_TOKEN', 'CHANNEL_ID']
         missing = [k for k in required if default.get(k) is None]
         if missing:
-            error_msg = f"Missing required config: {missing}. Set as env vars or in config.json."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            raise ValueError(f"Missing required config: {missing}. Set as env vars or in config.json.")
 
         return default
 
@@ -194,7 +206,6 @@ class CourseFolderBot:
             logger.warning(f"No Udemy coupon URL in {coursefolder_url}")
             return None
 
-        # Extract coupon code, course ID, and slug
         code_match = re.search(r'couponCode=([^&]+)', data['udemy_url'])
         if code_match:
             data['coupon_code'] = code_match.group(1)
@@ -205,7 +216,7 @@ class CourseFolderBot:
         course_path = re.search(r'/course/([^/?]+)', data['udemy_url'])
         if course_path:
             data['course_slug'] = course_path.group(1)
-            data['course_id'] = data['course_slug']   # Use slug as ID
+            data['course_id'] = data['course_slug']
 
         # Title
         h1 = soup.find('h1')
@@ -259,7 +270,6 @@ class CourseFolderBot:
         return data
 
     async def verify_coupon(self, coupon_url: str) -> Tuple[bool, Dict]:
-        """Verify coupon with Playwright – returns (is_valid, details)."""
         try:
             if not self.browser:
                 p = await async_playwright().start()
@@ -273,11 +283,9 @@ class CourseFolderBot:
 
             page = await self.context.new_page()
             timeout = self.config.get('PLAYWRIGHT_TIMEOUT', 45000)
-            # Use domcontentloaded instead of networkidle for faster loading
             await page.goto(coupon_url, wait_until='domcontentloaded', timeout=timeout)
-            await page.wait_for_timeout(3000)  # extra wait for dynamic content
+            await page.wait_for_timeout(3000)
 
-            # Evaluate price, coupon status
             price_free = await page.evaluate("""
                 () => document.body.textContent.includes('Free') ||
                      document.body.textContent.includes('₹0') ||
@@ -340,7 +348,6 @@ Format like:
 
 🔥 100% FREE – click the button below to enroll!
 """
-            # New API: generate_content
             response = self.ai_client.models.generate_content(
                 model=self.ai_model,
                 contents=prompt,
@@ -445,7 +452,7 @@ Format like:
                     for url in urls[:self.config.get('COURSE_LIMIT', 50)]:
                         if await self.process_course(url):
                             posted += 1
-                            await asyncio.sleep(5)  # rate limit
+                            await asyncio.sleep(5)
                     logger.info(f"Posted {posted} new courses")
 
                     await asyncio.sleep(self.config.get('CHECK_INTERVAL', 300))
