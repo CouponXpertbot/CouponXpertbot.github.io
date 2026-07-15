@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 import time
 from datetime import datetime
@@ -11,7 +12,6 @@ from playwright.async_api import async_playwright
 import logging
 import google.generativeai as genai
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -23,12 +23,11 @@ logger = logging.getLogger(__name__)
 class CourseFolderBot:
     def __init__(self, config_path: str = 'config.json'):
         self.config = self._load_config(config_path)
-        self.posted = self._load_posted()  # {coupon_code, course_id, course_slug}
+        self.posted = self._load_posted()
         self.session = None
         self.browser = None
         self.context = None
 
-        # Init Gemini if enabled
         if self.config.get('AI_ENABLED', True):
             try:
                 genai.configure(api_key=self.config['GEMINI_KEY'])
@@ -40,13 +39,13 @@ class CourseFolderBot:
                 logger.error(f"Gemini init failed: {e}")
                 self.config['AI_ENABLED'] = False
 
-    # ---------- Configuration ----------
     def _load_config(self, path: str) -> Dict:
+        # Defaults
         default = {
-            'BOT_TOKEN': 'BOT_TOKEN',
-            'CHANNEL_ID': '@your_channel',
-            'CHANNEL_INVITE': 'https://t.me/your_channel',  # for button
-            'GEMINI_KEY': 'YOUR_GEMINI_API_KEY',
+            'BOT_TOKEN': None,
+            'CHANNEL_ID': None,
+            'CHANNEL_INVITE': 'https://t.me/your_channel',
+            'GEMINI_KEY': None,
             'CHECK_INTERVAL': 300,
             'COURSE_LIMIT': 50,
             'PLAYWRIGHT_HEADLESS': True,
@@ -55,17 +54,48 @@ class CourseFolderBot:
             'AI_TEMPERATURE': 0.7,
             'AI_MAX_TOKENS': 200
         }
+
+        # 1. Read from environment (uppercase names)
+        for key in default.keys():
+            env_val = os.environ.get(key)
+            if env_val is not None:
+                # Convert types
+                if key in ['CHECK_INTERVAL', 'COURSE_LIMIT', 'AI_MAX_TOKENS']:
+                    try:
+                        default[key] = int(env_val)
+                    except ValueError:
+                        pass
+                elif key == 'AI_TEMPERATURE':
+                    try:
+                        default[key] = float(env_val)
+                    except ValueError:
+                        pass
+                elif key in ['PLAYWRIGHT_HEADLESS', 'AI_ENABLED']:
+                    default[key] = env_val.lower() == 'true'
+                else:
+                    default[key] = env_val
+
+        # 2. Override with config.json if exists (for local testing)
         try:
             with open(path, 'r') as f:
-                cfg = json.load(f)
-                default.update(cfg)  # merge
-            return default
+                file_cfg = json.load(f)
+                for key, value in file_cfg.items():
+                    if key in default:
+                        default[key] = value
+            logger.info(f"Loaded config from {path}")
         except FileNotFoundError:
-            with open(path, 'w') as f:
-                json.dump(default, f, indent=2)
-            return default
+            logger.info("No config.json, using environment variables only")
 
-    # ---------- Database ----------
+        # Validate required
+        required = ['BOT_TOKEN', 'CHANNEL_ID', 'GEMINI_KEY']
+        missing = [k for k in required if default.get(k) is None]
+        if missing:
+            error_msg = f"Missing required config: {missing}. Set as env vars or in config.json."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        return default
+
     def _load_posted(self) -> Dict:
         try:
             with open('posted.json', 'r') as f:
@@ -74,20 +104,17 @@ class CourseFolderBot:
             return {}
 
     async def _save_posted(self):
-        # Keep last 30 days
         cutoff = time.time() - 30 * 86400
         self.posted = {k: v for k, v in self.posted.items() if v > cutoff}
         async with aiofiles.open('posted.json', 'w') as f:
             await f.write(json.dumps(self.posted, indent=2))
 
     def _is_duplicate(self, coupon_code: str, course_id: str, course_slug: str) -> bool:
-        # Check all three identifiers
         for key in [coupon_code, course_id, course_slug]:
             if key and key in self.posted:
                 return True
         return False
 
-    # ---------- HTTP ----------
     async def _get(self, url: str) -> Optional[str]:
         try:
             async with self.session.get(url, timeout=30) as resp:
@@ -98,7 +125,6 @@ class CourseFolderBot:
             logger.error(f"Request error {url}: {e}")
         return None
 
-    # ---------- Extraction ----------
     def extract_course_urls(self, html: str) -> List[str]:
         soup = BeautifulSoup(html, 'html.parser')
         urls = []
@@ -112,7 +138,6 @@ class CourseFolderBot:
                     '/free-udemy-coupon.php', '.css', '.js', '/preview/'
                 ])):
                 urls.append(href)
-        # dedupe
         seen = set()
         return [u for u in urls if not (u in seen or seen.add(u))]
 
@@ -137,7 +162,7 @@ class CourseFolderBot:
             'course_slug': None,
         }
 
-        # ----- 1. Extract Udemy coupon URL from JSON-LD (preferred) -----
+        # JSON‑LD first
         json_ld_coupon = None
         for script in soup.find_all('script', type='application/ld+json'):
             if 'couponCode=' in script.text:
@@ -149,7 +174,6 @@ class CourseFolderBot:
         if json_ld_coupon:
             data['udemy_url'] = json_ld_coupon
         else:
-            # Fallback: scan <a> tags
             for a in soup.find_all('a', href=True):
                 href = a['href']
                 if 'udemy.com' in href and 'couponCode=' in href and '/preview/' not in href:
@@ -160,20 +184,17 @@ class CourseFolderBot:
             logger.warning(f"No Udemy coupon URL in {coursefolder_url}")
             return None
 
-        # Extract coupon code, course ID, and slug
         data['coupon_code'] = re.search(r'couponCode=([^&]+)', data['udemy_url']).group(1)
         course_path = re.search(r'/course/([^/?]+)', data['udemy_url'])
         if course_path:
             data['course_slug'] = course_path.group(1)
-            data['course_id'] = data['course_slug']  # use slug as ID (or could be numeric)
+            data['course_id'] = data['course_slug']
 
-        # ----- 2. Other fields -----
-        # Title
+        # Other fields
         h1 = soup.find('h1')
         if h1:
             data['title'] = h1.text.strip()
 
-        # Image
         img = (soup.find('img', {'class': re.compile(r'course.*image')}) or
                soup.find('img', {'class': re.compile(r'.*thumb.*')}) or
                soup.find('img', {'class': re.compile(r'.*featured.*')}))
@@ -183,14 +204,12 @@ class CourseFolderBot:
                 src = 'https:' + src
             data['image'] = src
 
-        # Description
         desc = (soup.find('div', {'class': re.compile(r'.*description.*')}) or
                 soup.find('div', {'class': re.compile(r'.*content.*')}) or
                 soup.find('div', {'class': re.compile(r'.*course.*info.*')}))
         if desc:
             data['description'] = desc.text.strip()[:400]
 
-        # Rating
         rating_tag = soup.find(text=re.compile(r'\d+\.\d+\s+stars'))
         if rating_tag:
             data['rating'] = rating_tag.strip()
@@ -199,18 +218,15 @@ class CourseFolderBot:
             if meta and meta.get('content'):
                 data['rating'] = meta['content']
 
-        # Students
         students_tag = soup.find(text=re.compile(r'(\d+[,.]?\d*)\s*students', re.I))
         if students_tag:
             data['students'] = students_tag.strip()
 
-        # Language
         for lang in ['English', 'Spanish', 'French', 'German', 'Chinese', 'Japanese', 'Korean']:
             if lang in soup.text:
                 data['language'] = lang
                 break
 
-        # Category
         for cat in ['Development', 'Business', 'IT', 'Design', 'Marketing', 'Finance', 'Health']:
             if cat in soup.text:
                 data['category'] = cat
@@ -219,9 +235,7 @@ class CourseFolderBot:
         data['timestamp'] = datetime.now().isoformat()
         return data
 
-    # ---------- Playwright Verification ----------
     async def verify_coupon(self, coupon_url: str) -> Tuple[bool, Dict]:
-        """Returns (is_valid, verification_data)"""
         try:
             if not self.browser:
                 p = await async_playwright().start()
@@ -237,7 +251,6 @@ class CourseFolderBot:
             await page.goto(coupon_url, wait_until='networkidle', timeout=30000)
             await page.wait_for_timeout(2000)
 
-            # Check price and coupon status
             price_free = await page.evaluate("""
                 () => document.body.textContent.includes('Free') ||
                      document.body.textContent.includes('₹0') ||
@@ -277,7 +290,6 @@ class CourseFolderBot:
             logger.error(f"Playwright error: {e}")
             return False, {'error': str(e)}
 
-    # ---------- AI Formatting ----------
     async def ai_format_post(self, course_data: Dict) -> str:
         if not self.config.get('AI_ENABLED', False):
             return self._manual_format(course_data)
@@ -321,10 +333,8 @@ Format like:
 
 🔥 100% FREE – click the button below to enroll!"""
 
-    # ---------- Telegram ----------
     async def send_to_telegram(self, course_data: Dict, caption: str):
         try:
-            # Two buttons: Enroll Now, Join Channel
             buttons = {
                 'inline_keyboard': [
                     [{'text': '🎓 Enroll Now', 'url': course_data['udemy_url']}],
@@ -332,7 +342,6 @@ Format like:
                 ]
             }
 
-            # Send photo with caption (using URL directly, no download)
             if course_data.get('image'):
                 url = f"https://api.telegram.org/bot{self.config['BOT_TOKEN']}/sendPhoto"
                 data = {
@@ -347,7 +356,7 @@ Format like:
                         logger.info(f"Posted {course_data.get('title')}")
                         return
 
-            # Fallback: text only
+            # Fallback text
             url = f"https://api.telegram.org/bot{self.config['BOT_TOKEN']}/sendMessage"
             data = {
                 'chat_id': self.config['CHANNEL_ID'],
@@ -363,29 +372,24 @@ Format like:
         except Exception as e:
             logger.error(f"Telegram send error: {e}")
 
-    # ---------- Main Processing ----------
     async def process_course(self, course_url: str) -> bool:
         try:
             data = await self.extract_course_data(course_url)
             if not data:
                 return False
 
-            # Duplicate check
             if self._is_duplicate(data.get('coupon_code'), data.get('course_id'), data.get('course_slug')):
                 logger.info(f"Duplicate: {data.get('title')}")
                 return False
 
-            # Verify only if not seen before
             valid, _ = await self.verify_coupon(data['udemy_url'])
             if not valid:
                 logger.info(f"Invalid coupon: {data.get('title')}")
                 return False
 
-            # Format and send
             caption = await self.ai_format_post(data)
             await self.send_to_telegram(data, caption)
 
-            # Mark as posted
             for key in [data['coupon_code'], data['course_id'], data['course_slug']]:
                 if key:
                     self.posted[key] = time.time()
@@ -395,7 +399,6 @@ Format like:
             logger.error(f"Process error for {course_url}: {e}")
             return False
 
-    # ---------- Main Loop ----------
     async def run(self):
         logger.info("Bot started")
         async with aiohttp.ClientSession() as session:
@@ -413,7 +416,7 @@ Format like:
                     for url in urls[:self.config.get('COURSE_LIMIT', 50)]:
                         if await self.process_course(url):
                             posted += 1
-                            await asyncio.sleep(5)  # rate limit
+                            await asyncio.sleep(5)
                     logger.info(f"Posted {posted} new courses")
 
                     await asyncio.sleep(self.config.get('CHECK_INTERVAL', 300))
